@@ -1,0 +1,11 @@
+{
+  "hosting": [
+    {
+      "site": "the-event-map-admin",
+      "source": "."
+    }
+  ],
+    "functions": {
+    "runtime": "nodejs20"
+  }
+}
