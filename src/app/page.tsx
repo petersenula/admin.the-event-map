@@ -619,7 +619,7 @@ export default function Home() {
               <div className="flex flex-col space-y-2">
                 {[0, 1, 2].map((rowIndex) => (
                   <div key={rowIndex} className="flex flex-wrap gap-4">
-                    {eventType.slice(rowIndex * 9, (rowIndex + 1) * 9).map((option) => (
+                    {eventType.slice(rowIndex * 10, (rowIndex + 1) * 10).map((option) => (
                       <label key={option} className="flex items-center gap-1 text-base text-gray-800">
                         <input
                           type="checkbox"
