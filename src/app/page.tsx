@@ -32,22 +32,16 @@ import GoogleMapsSearch from './googlemapsscript';
 import AuthForm from './components/auth';
 import { Dialog } from '@headlessui/react'; // если ты его используешь
 import ArchiveDialog from './components/ArchiveDialog';
+import { translations } from '../lib/translation';
 
-const eventType = [
-  'культура', 'выставка', 'спектакль', 'живопись', 'наука',
-  'спорт', 'природа', 'здоровье', 'танцы',  'музыка', 'технологии',
-  'общение', 'обучение', 'книги', 'лекция', 'квест', 'мастеркласс',
-  'развлечение', 'игра',  'детское',  'кино', 'развлекательные центры', 'клубы и ночная жизнь',  
-  'ярмарка', 'еда', 'фестиваль', 'автомобили', 'религия', 'другое'   
-];
+const [language, setLanguage] = useState<'ru' | 'en'>('ru');
+const t = translations[language]; 
 
-const ageGroups = [
-  '0-2', '3-5', '6-8', '9-12', '13-17', '18+', 'any'
-];
+const eventType = t.eventTypes;
 
-const formats = [
-  'any', 'children', 'adults'
-];
+const ageGroups = t.ageGroups;
+
+const formats = t.formatOptions;
 
 export default function Home() {
 
@@ -538,13 +532,21 @@ export default function Home() {
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-xl font-bold">Event Input Form</h1>
+        <h1 className="text-xl font-bold">{t.eventForm}</h1>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-700">{user.email}</span>
           <button onClick={signOut} className="bg-gray-300 text-black px-3 py-1 rounded">
             Выйти
           </button>
         </div>
+        <select
+          value={language}
+          onChange={(e) => setLanguage(e.target.value as 'ru' | 'en')}
+          className="border border-gray-400 rounded px-2 py-1 text-sm"
+        >
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+        </select>
       </div>
 
       <div ref={formRef}>
@@ -555,7 +557,7 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <span>{getMarker(watch('title'))}</span>
               <textarea
-                placeholder="Наименование события"
+                placeholder={t.title}
                 {...register('title')}
                 className="border border-gray-400 text-lg w-full px-4 resize overflow-auto h-16"
               />
@@ -567,7 +569,7 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <span>{getMarker(watch('description'))}</span>
               <textarea
-                placeholder="Описание (оригинал)"
+                placeholder={t.description}
                 {...register('description')}
                 className="border border-gray-400 h-40 text-base w-full max-w-full px-4 resize overflow-auto"
               />
@@ -579,7 +581,7 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <span>{getMarker(watch('address'))}</span>
               <textarea
-                placeholder="Адрес (выбирается из Google)"
+                placeholder={t.address}
                 {...register('address')}
                 className="border border-gray-400 h-16 text-base w-full max-w-full px-4 resize overflow-auto"
               />
@@ -596,7 +598,7 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <span>{getMarker(watch('website'))}</span>
               <textarea
-                placeholder="Сайт"
+                placeholder={t.website}
                 {...register('website')}
                 className="border border-gray-400 h-16 text-base w-full px-4 resize overflow-auto"
               />
@@ -607,10 +609,10 @@ export default function Home() {
                   disabled={scraping}
                   className="bg-purple-600 text-white px-3 py-1 rounded disabled:opacity-60"
                 >
-                  {scraping ? 'Заполняю…' : 'Автозаполнить с сайта'}
+                  {scraping ? 'Заполняю…' : t.autofill}
                 </button>
                 <span className="text-xs text-gray-500">
-                  Помощник: может не сработать на некоторых сайтах
+                  {t.autofillHelper}
                 </span>
               </div>
             </div>
@@ -690,7 +692,7 @@ export default function Home() {
                 {...register('format')}
                 className="border border-gray-400 rounded px-2 py-1 w-40"
               >
-                <option value="">Формат события</option>
+                <option value="">{t.anyFormat}</option>
                 {formats.map(option => (
                   <option key={option} value={option}>{option}</option>
                 ))}
@@ -700,10 +702,10 @@ export default function Home() {
 
           {/* Повтор */}
           <div className="grid grid-cols-2 gap-4">
-            <select {...register('repeat')} className="border border-gray-400 rounded px-2 py-1 w-full">
-              <option value="">Без повтора</option>
-              <option value="weekly">Еженедельно</option>
-              <option value="monthly">Ежемесячно</option>
+            <select {...register('repeat')} className="...">
+              <option value="">{language === 'ru' ? 'Без повтора' : 'No repeat'}</option>
+              <option value="weekly">{language === 'ru' ? 'Еженедельно' : 'Weekly'}</option>
+              <option value="monthly">{language === 'ru' ? 'Ежемесячно' : 'Monthly'}</option>
             </select>
             <input type="date" {...register('repeat_until')} className="border border-gray-400 rounded px-2 py-1 w-full" />
           </div>
@@ -720,7 +722,7 @@ export default function Home() {
           {/* Кнопки */}
           <div className="flex gap-4">
             <button type="submit" className="bg-blue-500 text-white px-4 py-2 rounded">
-              {editingId ? 'Обновить' : 'Сохранить'}
+              {editingId ? t.update : t.save}
             </button>
             {editingId && (
               <button
@@ -731,7 +733,7 @@ export default function Home() {
                 }}
                 className="bg-gray-400 text-white px-4 py-2 rounded"
               >
-                Отмена
+                {t.cancel}
               </button>
             )}
 
@@ -740,7 +742,7 @@ export default function Home() {
               className="bg-yellow-500 text-white px-4 py-2 rounded"
               onClick={() => setArchiveOpen(true)}
             >
-              Архивировать события
+              {t.archive}
             </button>
 
             {archiveOpen && (
@@ -780,7 +782,7 @@ export default function Home() {
       />
 
       <div className="flex items-center gap-4">
-        <label className="font-semibold text-gray-800">Сортировать по:</label>
+        <label className="font-semibold text-gray-800">{t.sortBy}</label>
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as any)}
@@ -806,7 +808,7 @@ export default function Home() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Поиск по названию, описанию, адресу, сайту..."
+          placeholder={t.searchPlaceholder}
           className="border border-gray-400 rounded px-3 py-2 w-full max-w-xl"
         />
         <button
@@ -814,7 +816,7 @@ export default function Home() {
           onClick={() => setSearch('')}
           className="px-3 py-2 bg-gray-200 rounded"
         >
-          Сброс
+          {t.clearSearch}
         </button>
         {isSearching && <span className="text-sm text-gray-600">Ищу…</span>}
       </div>
@@ -834,13 +836,13 @@ export default function Home() {
             <div className="text-sm text-blue-700 underline">{event.website}</div>
             <div className="flex gap-4 mt-2">
               <button onClick={() => deleteEvent(event.id)} className="text-red-500">
-                Удалить
+                {t.delete}
               </button>
               <button onClick={() => editEvent(event)} className="text-blue-500">
-                Редактировать
+                {t.edit}
               </button>
               <button onClick={() => copyEvent(event)} className="text-green-500">
-                Копировать
+                {t.copy}
               </button>
             </div>
             <hr className="mt-4 border-black" />
@@ -852,7 +854,7 @@ export default function Home() {
               onClick={() => fetchEvents()}
               className="bg-gray-200 hover:bg-gray-300 text-black px-4 py-2 rounded"
             >
-              Показать ещё
+              {t.loadMore}
             </button>
           </div>
         )}

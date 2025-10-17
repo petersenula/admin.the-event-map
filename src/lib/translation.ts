@@ -1,52 +1,78 @@
-import axios from 'axios';
+// lib/translations.ts
 
-const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_TRANSLATE_API_KEY;
-
-/**
- * Перевод текста с одного языка на другой с указанием sourceLang
- * @param text - исходный текст
- * @param targetLang - язык перевода (например, 'en')
- * @param sourceLang - исходный язык (например, 'de')
- */
-export async function translateText(
-  text: string,
-  targetLang: string,
-  sourceLang: string
-): Promise<string> {
-  if (!text || text.trim() === '') return '';
-
-  if (!GOOGLE_API_KEY) {
-    console.error('API ключ не найден в переменных окружения');
-    return text;
-  }
-
-  const params = new URLSearchParams();
-  params.append('q', text);
-  params.append('target', targetLang);
-  params.append('source', sourceLang); // <- теперь мы передаём исходный язык
-  params.append('format', 'text');
-  params.append('key', GOOGLE_API_KEY);
-
-  try {
-    const response = await axios.post(
-      'https://translation.googleapis.com/language/translate/v2',
-      params,
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
-      }
-    );
-
-    return response.data.data.translations[0].translatedText;
-  } catch (error: any) {
-    if (axios.isAxiosError(error)) {
-      console.error('Ошибка перевода:');
-      console.log('Полный ответ:', error.toJSON?.() || error);
-      console.log('Ответ Google:', error.response?.data);
-    } else {
-      console.error('Неизвестная ошибка:', error);
-    }
-    return text;
-  }
-}
+export const translations = {
+  ru: {
+    eventForm: 'Форма ввода события',
+    logout: 'Выйти',
+    title: 'Наименование события',
+    description: 'Описание (оригинал)',
+    address: 'Адрес (выбирается из Google)',
+    website: 'Сайт',
+    autofill: 'Автозаполнить с сайта',
+    autofillHelper: 'Помощник: может не сработать на некоторых сайтах',
+    start: 'Дата и время начала',
+    end: 'Дата и время окончания',
+    ageGroup: 'Возраст',
+    format: 'Формат события',
+    repeat: 'Повтор',
+    repeatUntil: 'До (повторять)',
+    save: 'Сохранить',
+    update: 'Обновить',
+    cancel: 'Отмена',
+    archive: 'Архивировать события',
+    sortBy: 'Сортировать по:',
+    searchPlaceholder: 'Поиск по названию, описанию, адресу, сайту…',
+    clearSearch: 'Сброс',
+    delete: 'Удалить',
+    edit: 'Редактировать',
+    copy: 'Копировать',
+    loadMore: 'Показать ещё',
+    anyFormat: 'Формат события',
+    formatOptions: ['любой', 'детское', 'взрослое'],
+    eventTypes: [
+      'культура', 'выставка', 'спектакль', 'концерт', 'живопись', 'наука',
+      'спорт', 'природа', 'здоровье', 'танцы', 'музыка', 'технологии',
+      'общение', 'обучение', 'книги', 'лекция', 'квест', 'мастеркласс',
+      'развлечение', 'игра', 'детское', 'кино', 'развлекательные центры', 'клубы и ночная жизнь',
+      'ярмарка', 'еда', 'фестиваль', 'автомобили', 'религия', 'традиционное', 'другое'
+    ],
+    ageGroups: ['0-2', '3-5', '6-8', '9-12', '13-17', '18+', 'любой'],
+  },
+  en: {
+    eventForm: 'Event Input Form',
+    logout: 'Sign out',
+    title: 'Event Title',
+    description: 'Description (original)',
+    address: 'Address (select from Google)',
+    website: 'Website',
+    autofill: 'Autofill from website',
+    autofillHelper: 'Helper: may not work on some sites',
+    start: 'Start date and time',
+    end: 'End date and time',
+    ageGroup: 'Age group',
+    format: 'Event format',
+    repeat: 'Repeat',
+    repeatUntil: 'Repeat until',
+    save: 'Save',
+    update: 'Update',
+    cancel: 'Cancel',
+    archive: 'Archive events',
+    sortBy: 'Sort by:',
+    searchPlaceholder: 'Search by title, description, address, website...',
+    clearSearch: 'Clear',
+    delete: 'Delete',
+    edit: 'Edit',
+    copy: 'Copy',
+    loadMore: 'Load more',
+    anyFormat: 'Event format',
+    formatOptions: ['any', 'children', 'adults'],
+    eventTypes: [
+      'culture', 'exhibition', 'play', 'concert', 'painting', 'science',
+      'sports', 'nature', 'health', 'dance', 'music', 'technology',
+      'social', 'education', 'books', 'lecture', 'quest', 'master class',
+      'entertainment', 'game', 'kids', 'cinema', 'amusement centers', 'clubs & nightlife',
+      'fair', 'food', 'festival', 'cars', 'religion', 'traditional', 'other'
+    ],
+    ageGroups: ['0-2', '3-5', '6-8', '9-12', '13-17', '18+', 'any'],
+  },
+};
