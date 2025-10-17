@@ -1,6 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 'use client';
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 interface EventFormValues {
   title?: string;
