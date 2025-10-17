@@ -35,17 +35,12 @@ import { Dialog } from '@headlessui/react'; // если ты его исполь
 import ArchiveDialog from './components/ArchiveDialog';
 import { translations } from '../lib/translation';
 
-const [language, setLanguage] = useState<'ru' | 'en'>('ru');
-const t = translations[language]; 
-
-const eventType = t.eventTypes;
-
-const ageGroups = t.ageGroups;
-
-const formats = t.formatOptions;
-
 export default function Home() {
-
+  const [language, setLanguage] = useState<'ru' | 'en'>('ru');
+  const t = translations[language]; 
+  const eventType = t.eventTypes;
+  const ageGroups = t.ageGroups;
+  const formats = t.formatOptions;
   const [search, setSearch] = useState('');     // что ввёл пользователь
   const [isSearching, setIsSearching] = useState(false); // индикатор поиска
 
