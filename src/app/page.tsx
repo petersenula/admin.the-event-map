@@ -34,6 +34,7 @@ import AuthForm from './components/auth';
 import { Dialog } from '@headlessui/react'; // если ты его используешь
 import ArchiveDialog from './components/ArchiveDialog';
 import { translations } from '../lib/translation';
+import { FORMAT_OPTIONS, TYPE_OPTIONS, AGE_GROUPS } from '../lib/options';
 
 export default function Home() {
   const [language, setLanguage] = useState<'ru' | 'en'>('ru');
@@ -612,23 +613,22 @@ export default function Home() {
                 </span>
               </div>
             </div>
+            {/* Тип события (значение для БД — на РУССКОМ), подпись — по языку */}
             <div className="flex items-start gap-2">
               <span className="mt-1">{getMarker(watch('type') || [])}</span>
-              <div className="flex flex-col space-y-2">
-                {[0, 1, 2].map((rowIndex) => (
-                  <div key={rowIndex} className="flex flex-wrap gap-4">
-                    {eventType.slice(rowIndex * 10, (rowIndex + 1) * 10).map((option) => (
-                      <label key={option} className="flex items-center gap-1 text-base text-gray-800">
-                        <input
-                          type="checkbox"
-                          value={option}
-                          {...register('type')}
-                          className="form-checkbox"
-                        />
-                        <span>{option}</span>
-                      </label>
-                    ))}
-                  </div>
+              <div className="flex flex-wrap gap-4">
+                {TYPE_OPTIONS.map((opt) => (
+                  <label key={opt.valueRu} className="flex items-center gap-1 text-base text-gray-800">
+                    {/* value = РУССКИЙ текст (как требует БД) */}
+                    <input
+                      type="checkbox"
+                      value={opt.valueRu}
+                      {...register('type')}
+                      className="form-checkbox"
+                    />
+                    {/* Показываем подпись по языку */}
+                    <span>{opt.label[language]}</span>
+                  </label>
                 ))}
               </div>
             </div>
@@ -681,16 +681,19 @@ export default function Home() {
                 ))}
               </div>
             </div>
-
             <div className="flex items-center gap-2 shrink-0">
               <span>{getMarker(watch('format'))}</span>
               <select
                 {...register('format')}
                 className="border border-gray-400 rounded px-2 py-1 w-40"
               >
+                {/* Пустое значение = null в БД (через normalizeForm) */}
                 <option value="">{t.anyFormat}</option>
-                {formats.map(option => (
-                  <option key={option} value={option}>{option}</option>
+
+                {FORMAT_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label[language]}
+                  </option>
                 ))}
               </select>
             </div>
