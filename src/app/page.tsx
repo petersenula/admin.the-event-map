@@ -261,11 +261,10 @@ export default function Home() {
     keys.forEach((key) => {
       if (['type', 'age_group', 'format'].includes(key) && Array.isArray(event[key])) {
         setValue(key as any, event[key]);
-      }
       } else {
         setValue(key, event[key] as any);
       }
-    );
+    });
     setTimeout(() => {
       formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 0);
