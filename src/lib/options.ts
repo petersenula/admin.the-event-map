@@ -3,7 +3,7 @@
 // Канонические значения для БД + подписи для UI
 // format: значение в БД ВСЕГДА англ.: any | children | adults
 export const FORMAT_OPTIONS = [
-  { value: 'any',      label: { ru: 'любой',     en: 'any' } },
+  { value: 'any',      label: { ru: 'семья',     en: 'family' } },
   { value: 'children', label: { ru: 'детям',     en: 'children' } },
   { value: 'adults',   label: { ru: 'взрослым',  en: 'adults' } },
 ];
