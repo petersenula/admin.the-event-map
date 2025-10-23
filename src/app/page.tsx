@@ -16,7 +16,7 @@ interface EventFormValues {
   end_date?: string;
   end_time?: string;
   age_group?: string[];
-  format?: string;
+  format?: string[];
   repeat?: string;
   repeat_until?: string;
   description_en?: string;
@@ -77,6 +77,7 @@ export default function Home() {
 
     if (!Array.isArray(out.type) || out.type.length === 0) out.type = null;
     if (!Array.isArray(out.age_group) || out.age_group.length === 0) out.age_group = null;
+    if (!Array.isArray(out.format) || out.format.length === 0) out.format = null;
 
     if (!out.repeat) out.repeat_until = null;
 
@@ -121,6 +122,7 @@ export default function Home() {
     // 1) приводим чекбоксы к массивам (на всякий случай)
     if (formData.type && !Array.isArray(formData.type)) formData.type = [formData.type];
     if (formData.age_group && !Array.isArray(formData.age_group)) formData.age_group = [formData.age_group];
+    if (formData.format && !Array.isArray(formData.format)) formData.format = [formData.format];
 
     // 2) нормализуем пустые строки -> null и repeat_until при "без повтора"
     const form = normalizeForm(formData);
@@ -257,12 +259,13 @@ export default function Home() {
     ] as const;
 
     keys.forEach((key) => {
-      if ((key === 'type' || key === 'age_group') && Array.isArray(event[key])) {
-        setValue(key, event[key]);
+      if (['type', 'age_group', 'format'].includes(key) && Array.isArray(event[key])) {
+        setValue(key as any, event[key]);
+      }
       } else {
         setValue(key, event[key] as any);
       }
-    });
+    );
     setTimeout(() => {
       formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 0);
@@ -682,20 +685,20 @@ export default function Home() {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <span>{getMarker(watch('format'))}</span>
-              <select
-                {...register('format')}
-                className="border border-gray-400 rounded px-2 py-1 w-40"
-              >
-                {/* Пустое значение = null в БД (через normalizeForm) */}
-                <option value="">{t.anyFormat}</option>
-
-                {FORMAT_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label[language]}
-                  </option>
+              <span>{getMarker(watch('format') || [])}</span>
+              <div className="flex flex-wrap items-center gap-3">
+                {formats.map((option) => (
+                  <label key={option.value} className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      value={option.value}
+                      {...register('format')}
+                      className="form-checkbox"
+                    />
+                    <span className="font-medium text-gray-800">{option.label[language]}</span>
+                  </label>
                 ))}
-              </select>
+              </div>
             </div>
           </div>
 
