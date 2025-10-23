@@ -686,7 +686,7 @@ export default function Home() {
             <div className="flex items-center gap-2 shrink-0">
               <span>{getMarker(watch('format') || [])}</span>
               <div className="flex flex-wrap items-center gap-3">
-                {formats.map((option) => (
+                {FORMAT_OPTIONS.map((option) => (
                   <label key={option.value} className="flex items-center gap-1">
                     <input
                       type="checkbox"
