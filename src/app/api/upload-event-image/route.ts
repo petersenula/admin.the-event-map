@@ -17,21 +17,38 @@ export async function POST(req: NextRequest) {
     }
 
     const arrayBuffer = await file.arrayBuffer();
+    // стартуем в виде Uint8Array с настоящим ArrayBuffer
     let bytes = new Uint8Array(arrayBuffer);
-    let contentType = 'image/webp';
-    let ext = 'webp';
 
-    // Пытаемся уменьшить и перекодировать в WEBP
+    // по умолчанию сохраняем компактное превью webp
+    let outContentType = 'image/webp';
+    let outExt = 'webp';
+
+    // пробуем уменьшить/перекодировать
     try {
       const sharp = (await import('sharp')).default;
-      bytes = await sharp(bytes)
+
+      // sharp удобнее кормить Buffer
+      const inputBuf = Buffer.from(bytes);
+
+      const outBuf = await sharp(inputBuf)
         .resize(TARGET_W, TARGET_H, { fit: 'cover' })
         .webp({ quality: 80 })
         .toBuffer();
+
+      // ПРИНЦИПИАЛЬНО: приводим Buffer к ЧИСТОМУ ArrayBuffer, затем к Uint8Array
+      const outAb = outBuf.buffer.slice(
+        outBuf.byteOffset,
+        outBuf.byteOffset + outBuf.byteLength
+      ) as ArrayBuffer;
+
+      bytes = new Uint8Array(outAb);
     } catch {
-      // Фолбек: оставим как есть
-      contentType = file.type || 'image/jpeg';
-      ext = contentType.includes('png') ? 'png' : (contentType.includes('webp') ? 'webp' : 'jpg');
+      // фолбек — зальём оригинал и подберём тип/расширение
+      const srcType = file.type || 'image/jpeg';
+      outContentType = srcType;
+      outExt = srcType.includes('png') ? 'png'
+        : (srcType.includes('webp') ? 'webp' : 'jpg');
     }
 
     const supabase = createClient(
@@ -39,12 +56,12 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const fileName = `${eventId}_${Date.now()}.${ext}`;
+    const fileName = `${eventId}_${Date.now()}.${outExt}`;
 
     const { data: uploaded, error: uploadError } = await supabase.storage
       .from('event-images')
       .upload(fileName, bytes, {
-        contentType,
+        contentType: outContentType,
         upsert: false,
         cacheControl: '31536000, immutable',
       });
@@ -62,6 +79,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'no publicUrl from storage' }, { status: 500 });
     }
 
+    // обновляем запись в таблице events
     await supabase
       .from('events')
       .update({
