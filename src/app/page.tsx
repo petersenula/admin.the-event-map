@@ -10,6 +10,7 @@ interface EventFormValues {
   lat?: number;
   lng?: number;
   website?: string;
+  image_url?: string;
   type?: string[];
   start_date?: string;
   start_time?: string;
@@ -173,14 +174,28 @@ export default function Home() {
           }
         }
 
-        const { error: insertError } = await supabase.from('events').insert(eventsToInsert);
+        const { data: inserted, error: insertError } = await supabase
+          .from('events')
+          .insert(eventsToInsert)
+          .select('id, website, image_url');
+
         error = insertError;
+
+        // после вставки серий — подтянем обложки
+        if (!error && inserted && inserted.length) {
+          for (const row of inserted) {
+            await fetchAndAttachEventImage(row.id, row.website, row.image_url);
+          }
+        }
       } else {
         // без повтора — просто апдейт одной записи
         ({ error } = await supabase.from('events')
           .update({ ...cleanFormData, user_id: user.id || null })
           .eq('id', editingId));
-      }
+        if (!error) {
+          await fetchAndAttachEventImage(editingId, cleanFormData.website, cleanFormData.image_url);
+        }
+       }
     } else {
       while (!repeatUntil || startDate <= repeatUntil) {
         const newEvent = {
@@ -206,8 +221,19 @@ export default function Home() {
         }
       }
 
-      const { error: insertError } = await supabase.from('events').insert(eventsToInsert);
+      const { data: inserted, error: insertError } = await supabase
+        .from('events')
+        .insert(eventsToInsert)
+        .select('id, website, image_url');
+
       error = insertError;
+
+      // сразу подтянем обложки для созданных
+      if (!error && inserted && inserted.length) {
+        for (const row of inserted) {
+          await fetchAndAttachEventImage(row.id, row.website, row.image_url);
+        }
+      }
     }
 
     if (error) {
@@ -255,7 +281,7 @@ export default function Home() {
       'type', 'start_date', 'start_time', 'end_date', 'end_time',
       'age_group', 'format', 'repeat', 'repeat_until',
       'description_en', 'description_de', 'description_fr',
-      'description_it', 'description_ru'
+      'description_it', 'description_ru', 'image_url'
     ] as const;
 
     keys.forEach((key) => {
@@ -307,6 +333,27 @@ export default function Home() {
       setScraping(false);
     }
   };
+
+  // Тянем обложку с сайта и записываем image_url в БД (делает серверный API)
+  async function fetchAndAttachEventImage(eventId: string, website?: string, existingImage?: string | null) {
+    if (!website || existingImage) return; // уже есть картинка — пропускаем
+    try {
+      const resp = await fetch('/api/link-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: website, eventId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        console.warn('image fetch failed:', data?.error);
+        return;
+      }
+      // data.publicUrl уже записан в БД, но можно обновить локальный список:
+      await fetchEvents(true);
+    } catch (e) {
+      console.warn('fetchAndAttachEventImage error', e);
+    }
+  }
 
   const [sortBy, setSortBy] = useState<'created_at' | 'start_date' | 'end_date' | 'title'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -827,6 +874,14 @@ export default function Home() {
         {events.map(event => (
           <div key={event.id}
             id={`event-${event.id}`}  className="bg-white p-4 shadow rounded border border-gray-200 space-y-1">
+            {event.image_url ? (
+              <img
+                src={event.image_url}
+                alt={event.title || 'Event cover'}
+                loading="lazy"
+                className="w-full aspect-[16/9] object-cover rounded-lg bg-neutral-200 mb-2"
+              />
+            ) : null}
             <div className="font-bold text-black text-base">{event.title}</div>
             <div className="text-sm text-gray-600">
               {formatDate(event.start_date)} {event.start_time?.slice(0, 5)}
