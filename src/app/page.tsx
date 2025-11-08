@@ -52,6 +52,16 @@ export default function Home() {
 
   // где стейты:
   const formRef = useRef<HTMLDivElement | null>(null);
+  const pasteBoxRef = useRef<HTMLDivElement | null>(null);
+
+  function resetImageUI() {
+    setCoverMessage(null);
+    setCoverPreviewUrl(null);
+    // очистим contentEditable бокс
+    if (pasteBoxRef.current) {
+      pasteBoxRef.current.innerText = '';
+    }
+  }
 
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [archiveDate, setArchiveDate] = useState('');
@@ -822,7 +832,7 @@ export default function Home() {
                   Открой событие (Редактировать) → нажми, чтобы подтянуть превью с сайта
                 </span>
               </div>
-              <div className="mt-2 flex items-center gap-2">
+             {/*  <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
                   onClick={autoFillFromWebsite}
@@ -834,7 +844,7 @@ export default function Home() {
                 <span className="text-xs text-gray-500">
                   {t.autofillHelper}
                 </span>
-              </div>
+              </div> */}
             </div>
             {/* Тип события (значение для БД — на РУССКОМ), подпись — по языку */}
             <div className="flex items-start gap-2">
@@ -968,6 +978,7 @@ export default function Home() {
           {/* Вставка из буфера/URL */}
           <div className="mt-2">
             <div
+              ref={pasteBoxRef}
               contentEditable
               suppressContentEditableWarning
               tabIndex={0}

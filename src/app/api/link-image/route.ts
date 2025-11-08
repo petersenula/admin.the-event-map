@@ -200,14 +200,22 @@ export async function POST(req: NextRequest) {
     const { data: pub } = supabase.storage.from('event-images').getPublicUrl(put.path);
     const publicUrl = pub?.publicUrl;
 
-    const { error: upErr } = await supabase
-      .from('events')
-      .update({
+    const { data: updated, error: upErr } = await supabase
+    .from('events')
+    .update({
         image_url: publicUrl,
         image_source: imageUrl,
         image_checked_at: new Date().toISOString()
-      })
-      .eq('id', eventId);
+    })
+    .or(`id.eq.${eventId},uuid.eq.${eventId}`)
+    .select('id');
+
+    if (upErr) {
+    return NextResponse.json({ error: 'db update: ' + upErr.message }, { status: 500 });
+    }
+    if (!updated || updated.length === 0) {
+    return NextResponse.json({ error: 'event not found by id or uuid' }, { status: 404 });
+    }
 
     if (upErr) {
       return NextResponse.json({ error: 'db update: ' + upErr.message }, { status: 500 });

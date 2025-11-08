@@ -105,14 +105,24 @@ export async function POST(req: NextRequest) {
     }
 
     // обновление записи события
-    const { error: upErr } = await supabase
-      .from('events')
-      .update({
+    // обновляем по id ИЛИ по uuid и проверяем, что что-то обновилось
+    const { data: updated, error: upErr } = await supabase
+    .from('events')
+    .update({
         image_url: publicUrl,
         image_source: url,
         image_checked_at: new Date().toISOString(),
-      })
-      .eq('id', eventId);
+    })
+    .or(`id.eq.${eventId},uuid.eq.${eventId}`)
+    .select('id') // верни что-нибудь, чтобы понять, были ли строки
+    ;
+
+    if (upErr) {
+    return NextResponse.json({ error: 'db update: ' + upErr.message }, { status: 500 });
+    }
+    if (!updated || updated.length === 0) {
+    return NextResponse.json({ error: 'event not found by id or uuid' }, { status: 404 });
+    }
 
     if (upErr) {
       return NextResponse.json({ error: 'db update: ' + upErr.message }, { status: 500 });
