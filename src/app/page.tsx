@@ -355,6 +355,82 @@ export default function Home() {
     }
   }
 
+  // ⬇️ вставь рядом с остальными хелперами компонента
+  async function uploadFileToBucket(file: File, eventId: string) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('eventId', eventId);
+
+    const resp = await fetch('/api/upload-event-image', { method: 'POST', body: formData });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data?.error || 'Upload failed');
+    return data.publicUrl as string | undefined;
+  }
+
+  async function uploadImageFromUrl(imgUrl: string, eventId: string) {
+    const resp = await fetch('/api/upload-event-image-from-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: imgUrl, eventId })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data?.error || 'Fetch-by-URL failed');
+    return data.publicUrl as string | undefined;
+  }
+
+  async function handlePasteImage(e: React.ClipboardEvent<HTMLDivElement>) {
+    try {
+      if (!editingId) {
+        alert('Сначала сохрани событие, чтобы появился ID — потом вставляй картинку.');
+        return;
+      }
+
+      const cd = e.clipboardData;
+
+      // 1) Если в буфере есть файлы-картинки
+      const items = Array.from(cd.items);
+      for (const it of items) {
+        if (it.kind === 'file' && it.type.startsWith('image/')) {
+          const file = it.getAsFile();
+          if (file) {
+            const url = await uploadFileToBucket(file, editingId);
+            alert('✅ Картинка вставлена из буфера');
+            await fetchEvents(true);
+            return;
+          }
+        }
+      }
+
+      // 2) Иначе пробуем как текст — вдруг это URL картинки
+      const text = cd.getData('text/plain')?.trim();
+      if (text) {
+        // если вставили data:URL (base64) — превращаем в File и грузим
+        if (text.startsWith('data:image/')) {
+          const res = await fetch(text);
+          const blob = await res.blob();
+          const file = new File([blob], `pasted_${Date.now()}.png`, { type: blob.type || 'image/png' });
+          const url = await uploadFileToBucket(file, editingId);
+          alert('✅ Картинка вставлена (data URL)');
+          await fetchEvents(true);
+          return;
+        }
+
+        // если это http(s) — грузим с сервера
+        if (/^https?:\/\//i.test(text)) {
+          const url = await uploadImageFromUrl(text, editingId);
+          alert('✅ Картинка загружена по ссылке');
+          await fetchEvents(true);
+          return;
+        }
+      }
+
+      alert('Не нашла картинку в буфере. Скопируй саму картинку (не страницу) или вставь ссылку на файл .jpg/.png');
+    } catch (err: any) {
+      alert('Ошибка вставки: ' + err.message);
+    }
+  }
+
+
   const [sortBy, setSortBy] = useState<'created_at' | 'start_date' | 'end_date' | 'title'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -795,6 +871,17 @@ export default function Home() {
               }}
             />
           </div>
+          {/* Вставка картинки из буфера: Ctrl/⌘+V (поддерживает и картинку, и ссылку) */}
+          <div
+            onPaste={handlePasteImage}
+            className="border border-dashed rounded p-3 mt-2 bg-gray-50"
+            title="Скопируй картинку на сайте → кликни сюда → Ctrl/⌘+V"
+          >
+            <div className="text-sm text-gray-700">
+              Вставь картинку (Ctrl/⌘+V) или ссылку на неё. Работает и с правым кликом «Copy image».
+            </div>
+          </div>
+
           {/* Кнопки */}
           <div className="flex gap-4">
             <button type="submit" className="bg-blue-500 text-white px-4 py-2 rounded">
