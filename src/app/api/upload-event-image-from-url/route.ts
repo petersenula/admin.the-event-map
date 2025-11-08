@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
     }
 
     const arr = await resp.arrayBuffer();
-    // Стартуем в виде Uint8Array
+
+    // Изначально держим как Uint8Array c нормальным ArrayBuffer
     let bytes = new Uint8Array(arr);
 
     // Что будем отправлять в storage:
@@ -48,17 +49,23 @@ export async function POST(req: NextRequest) {
     try {
     const sharp = (await import('sharp')).default;
 
-    // В sharp лучше подавать Buffer:
+    // sharp удобнее кормить Buffer:
     const inputBuf = Buffer.from(bytes);
 
-    // Обработка
+    // Делаем превью
     const outBuf = await sharp(inputBuf)
         .resize(TARGET_W, TARGET_H, { fit: 'cover' })
         .webp({ quality: 80 })
         .toBuffer();
 
-    // ВОТ ЭТО ГЛАВНОЕ: превращаем Buffer обратно в Uint8Array
-    bytes = new Uint8Array(outBuf.buffer, outBuf.byteOffset, outBuf.byteLength);
+    // ВАЖНО: Превращаем Buffer в ЧИСТЫЙ ArrayBuffer (а не ArrayBufferLike)
+    const outAb = outBuf.buffer.slice(
+        outBuf.byteOffset,
+        outBuf.byteOffset + outBuf.byteLength
+    ) as ArrayBuffer;
+
+    // Дальше снова работаем как с Uint8Array<ArrayBuffer>
+    bytes = new Uint8Array(outAb);
     } catch {
     // Фолбек: используем оригинал и правильные тип/расширение
     outContentType = srcContentType || 'image/jpeg';
