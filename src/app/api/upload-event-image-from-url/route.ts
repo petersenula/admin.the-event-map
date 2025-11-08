@@ -8,7 +8,7 @@ const TARGET_H = 450;
 
 export async function POST(req: NextRequest) {
   try {
-    // env проверки
+    // env checks
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
       return NextResponse.json({ error: 'NEXT_PUBLIC_SUPABASE_URL is missing' }, { status: 500 });
     }
@@ -16,13 +16,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY is missing on server' }, { status: 500 });
     }
 
-    // входные данные
+    // payload
     const { url, eventId } = (await req.json()) as { url?: string; eventId?: string };
     if (!url || !eventId) {
       return NextResponse.json({ error: 'url and eventId required' }, { status: 400 });
     }
 
-    // скачиваем исходник
+    // fetch image
     const resp = await fetch(url, {
       redirect: 'follow',
       headers: {
@@ -35,51 +35,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `cant fetch image: ${resp.status}` }, { status: 400 });
     }
 
-    // ОБЯЗАТЕЛЬНО: объявляем srcContentType
     const srcContentType = resp.headers.get('content-type') || '';
     if (!srcContentType.startsWith('image/')) {
       return NextResponse.json({ error: 'not an image' }, { status: 415 });
     }
 
-    // байты исходника
+    // source bytes
     const arr = await resp.arrayBuffer();
     let bytes = new Uint8Array(arr);
 
-    // тип/расширение выходного файла (по умолчанию — webp превью)
+    // output defaults (compact preview)
     let outContentType = 'image/webp';
     let outExt = 'webp';
 
-    // уменьшаем и конвертируем
+    // convert/resize
     try {
       const sharp = (await import('sharp')).default;
-
-      // sharp → в Buffer
       const inputBuf = Buffer.from(bytes);
-
       const outBuf = await sharp(inputBuf)
         .resize(TARGET_W, TARGET_H, { fit: 'cover' })
         .webp({ quality: 80 })
         .toBuffer();
 
-      // ВАЖНО: делаем ЧИСТЫЙ ArrayBuffer (а не ArrayBufferLike)
       const outAb = outBuf.buffer.slice(
         outBuf.byteOffset,
         outBuf.byteOffset + outBuf.byteLength
       ) as ArrayBuffer;
 
-      // снова Uint8Array поверх нормального ArrayBuffer — TS доволен
       bytes = new Uint8Array(outAb);
     } catch {
-      // фолбек — сохранить оригинал
+      // fallback to original
       outContentType = srcContentType || 'image/jpeg';
-      outExt = outContentType.includes('png')
-        ? 'png'
-        : outContentType.includes('webp')
-        ? 'webp'
-        : 'jpg';
+      outExt =
+        outContentType.includes('png') ? 'png' :
+        outContentType.includes('webp') ? 'webp' : 'jpg';
     }
 
-    // загрузка в Supabase Storage
+    // upload to storage
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -95,41 +87,43 @@ export async function POST(req: NextRequest) {
       });
 
     if (uploadError) {
-      return NextResponse.json({ error: 'storage upload: ' + uploadError.message }, { status: 500 });
+      const msg = (uploadError as any)?.message ?? JSON.stringify(uploadError);
+      return NextResponse.json({ error: 'storage upload: ' + msg }, { status: 500 });
     }
 
-    const { data: pub } = supabase.storage.from('event-images').getPublicUrl(uploaded.path);
+    const { data: pub } = supabase.storage
+      .from('event-images')
+      .getPublicUrl(uploaded.path);
+
     const publicUrl = pub?.publicUrl;
     if (!publicUrl) {
       return NextResponse.json({ error: 'no publicUrl from storage' }, { status: 500 });
     }
 
-    // обновление записи события
-    // обновляем по id ИЛИ по uuid и проверяем, что что-то обновилось
+    // update DB row by id OR uuid
     const { data: updated, error: upErr } = await supabase
-    .from('events')
-    .update({
+      .from('events')
+      .update({
         image_url: publicUrl,
         image_source: url,
         image_checked_at: new Date().toISOString(),
-    })
-    .or(`id.eq.${eventId},uuid.eq.${eventId}`)
-    .select('id') // верни что-нибудь, чтобы понять, были ли строки
-    ;
+      })
+      .or(`id.eq.${eventId},uuid.eq.${eventId}`)
+      .select('id');
 
     if (upErr) {
-    return NextResponse.json({ error: 'db update: ' + upErr.message }, { status: 500 });
+      const msg =
+        (upErr as any)?.message ??
+        (typeof upErr === 'string' ? upErr : JSON.stringify(upErr));
+      return NextResponse.json({ error: 'db update: ' + msg }, { status: 500 });
     }
     if (!updated || updated.length === 0) {
-    return NextResponse.json({ error: 'event not found by id or uuid' }, { status: 404 });
-    }
-
-    if (upErr) {
-      return NextResponse.json({ error: 'db update: ' + upErr.message }, { status: 500 });
+      return NextResponse.json({ error: 'event not found by id or uuid' }, { status: 404 });
     }
 
     return NextResponse.json({ ok: true, publicUrl });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'unknown error' }, { status: 500 });
+    const msg = e?.message ?? (typeof e === 'string' ? e : JSON.stringify(e));
+    return NextResponse.json({ error: msg || 'unknown error' }, { status: 500 });
   }
 }

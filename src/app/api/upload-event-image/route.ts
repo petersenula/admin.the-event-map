@@ -8,6 +8,15 @@ const TARGET_H = 450;
 
 export async function POST(req: NextRequest) {
   try {
+    // env checks
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      return NextResponse.json({ error: 'NEXT_PUBLIC_SUPABASE_URL is missing' }, { status: 500 });
+    }
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY is missing on server' }, { status: 500 });
+    }
+
+    // read multipart form
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
     const eventId = formData.get('eventId')?.toString();
@@ -16,27 +25,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'file and eventId required' }, { status: 400 });
     }
 
+    // source bytes
     const arrayBuffer = await file.arrayBuffer();
-    // стартуем в виде Uint8Array с настоящим ArrayBuffer
     let bytes = new Uint8Array(arrayBuffer);
 
-    // по умолчанию сохраняем компактное превью webp
+    // output defaults (compact preview)
     let outContentType = 'image/webp';
     let outExt = 'webp';
 
-    // пробуем уменьшить/перекодировать
+    // try to convert/resize with sharp
     try {
       const sharp = (await import('sharp')).default;
 
-      // sharp удобнее кормить Buffer
+      // sharp prefers Buffer
       const inputBuf = Buffer.from(bytes);
-
       const outBuf = await sharp(inputBuf)
         .resize(TARGET_W, TARGET_H, { fit: 'cover' })
         .webp({ quality: 80 })
         .toBuffer();
 
-      // ПРИНЦИПИАЛЬНО: приводим Buffer к ЧИСТОМУ ArrayBuffer, затем к Uint8Array
+      // turn Buffer → clean ArrayBuffer → Uint8Array (TS-friendly)
       const outAb = outBuf.buffer.slice(
         outBuf.byteOffset,
         outBuf.byteOffset + outBuf.byteLength
@@ -44,20 +52,24 @@ export async function POST(req: NextRequest) {
 
       bytes = new Uint8Array(outAb);
     } catch {
-      // фолбек — зальём оригинал и подберём тип/расширение
+      // fallback: keep original, set proper type/ext
       const srcType = file.type || 'image/jpeg';
-      outContentType = srcType;
-      outExt = srcType.includes('png') ? 'png'
-        : (srcType.includes('webp') ? 'webp' : 'jpg');
+      outContentType =
+        srcType && srcType.startsWith('image/') ? srcType : 'image/jpeg';
+      outExt = outContentType.includes('png')
+        ? 'png'
+        : outContentType.includes('webp')
+        ? 'webp'
+        : 'jpg';
     }
 
+    // upload to Supabase Storage
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
     const fileName = `${eventId}_${Date.now()}.${outExt}`;
-
     const { data: uploaded, error: uploadError } = await supabase.storage
       .from('event-images')
       .upload(fileName, bytes, {
@@ -67,7 +79,8 @@ export async function POST(req: NextRequest) {
       });
 
     if (uploadError) {
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
+      const msg = (uploadError as any)?.message ?? JSON.stringify(uploadError);
+      return NextResponse.json({ error: 'storage upload: ' + msg }, { status: 500 });
     }
 
     const { data: pub } = supabase.storage
@@ -79,26 +92,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'no publicUrl from storage' }, { status: 500 });
     }
 
-    // обновляем запись в таблице events
+    // update DB row by id OR uuid
     const { data: updated, error: upErr } = await supabase
-    .from('events')
-    .update({
+      .from('events')
+      .update({
         image_url: publicUrl,
         image_source: 'manual',
         image_checked_at: new Date().toISOString(),
-    })
-    .or(`id.eq.${eventId},uuid.eq.${eventId}`)
-    .select('id');
+      })
+      .or(`id.eq.${eventId},uuid.eq.${eventId}`)
+      .select('id');
 
     if (upErr) {
-    return NextResponse.json({ error: 'db update: ' + upErr.message }, { status: 500 });
+      const msg =
+        (upErr as any)?.message ??
+        (typeof upErr === 'string' ? upErr : JSON.stringify(upErr));
+      return NextResponse.json({ error: 'db update: ' + msg }, { status: 500 });
     }
     if (!updated || updated.length === 0) {
-    return NextResponse.json({ error: 'event not found by id or uuid' }, { status: 404 });
+      return NextResponse.json({ error: 'event not found by id or uuid' }, { status: 404 });
     }
 
     return NextResponse.json({ ok: true, publicUrl });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'unknown error' }, { status: 500 });
+    const msg = e?.message ?? (typeof e === 'string' ? e : JSON.stringify(e));
+    return NextResponse.json({ error: msg || 'unknown error' }, { status: 500 });
   }
 }
