@@ -147,17 +147,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `cant fetch image: ${imgRes.status}` }, { status: 400 });
     }
 
-    const contentType = imgRes.headers.get('content-type') || '';
-    if (!contentType.startsWith('image/')) {
-      return NextResponse.json({ error: 'not an image' }, { status: 415 });
+    const srcContentType = imgRes.headers.get('content-type') || '';
+    if (!srcContentType.startsWith('image/')) {
+    return NextResponse.json({ error: 'not an image' }, { status: 415 });
     }
 
     // Готовим байты (Uint8Array совместим и с sharp, и с Supabase)
    // Готовим байты (Uint8Array совместим и с sharp, и с Supabase)
+// Готовим байты (Uint8Array совместим и с sharp, и с Supabase)
     const arr = await imgRes.arrayBuffer();
     let bytes: Uint8Array | Buffer = new Uint8Array(arr);
-    let contentType = 'image/webp';
-    let ext = 'webp';
+
+    // Что будем отправлять в storage:
+    let outContentType = 'image/webp';
+    let outExt = 'webp';
 
     // Опциональный ресайз/перекод в компактный WEBP 800×450
     try {
@@ -167,10 +170,11 @@ export async function POST(req: NextRequest) {
         .webp({ quality: 80 })
         .toBuffer();
     } catch {
-    // Фолбек: оставим оригинальные байты и выставим тип из ответа
-    contentType = imgRes.headers.get('content-type') || 'image/jpeg';
-    ext = contentType.includes('png') ? 'png'
-        : (contentType.includes('webp') ? 'webp' : 'jpg');
+    // Фолбек: заливаем оригинал, ставим тип из ответа
+    outContentType = srcContentType || 'image/jpeg';
+    outExt = outContentType.includes('png')
+        ? 'png'
+        : (outContentType.includes('webp') ? 'webp' : 'jpg');
     }
 
     // Сохраняем в Storage и обновляем events
@@ -180,11 +184,11 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY! // серверный ключ
     );
 
-    const fileName = `${eventId}_${Date.now()}.${ext}`;
+    const fileName = `${eventId}_${Date.now()}.${outExt}`;
     const { data: put, error: putErr } = await supabase.storage
     .from('event-images')
     .upload(fileName, bytes, {
-        contentType,
+        contentType: outContentType,
         upsert: false,
         cacheControl: '31536000, immutable',
     });
