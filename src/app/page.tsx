@@ -582,7 +582,7 @@ export default function Home() {
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-700">{user.email}</span>
           <button onClick={signOut} className="bg-gray-300 text-black px-3 py-1 rounded">
-            Выйти
+            Log Out
           </button>
         </div>
         <select
@@ -766,7 +766,35 @@ export default function Home() {
             <textarea placeholder="Описание (it)" {...register('description_it')} className="border border-gray-400 h-24 text-sm w-full max-w-full px-4 resize overflow-auto" />
             <textarea placeholder="Описание (ru)" {...register('description_ru')} className="border border-gray-400 h-24 text-sm w-full max-w-full px-4 resize overflow-auto" />
           </div>
-
+          {/* Загрузка своей картинки */}
+          <div className="flex flex-col gap-2">
+            <label className="font-semibold text-gray-700">
+              Картинка события (если хочешь выбрать вручную)
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                  const formData = new FormData();
+                  formData.append('file', file);
+                  formData.append('eventId', editingId || 'new');
+                  const resp = await fetch('/api/upload-event-image', {
+                    method: 'POST',
+                    body: formData,
+                  });
+                  const data = await resp.json();
+                  if (!resp.ok) throw new Error(data.error || 'Upload failed');
+                  alert('✅ Картинка загружена');
+                  await fetchEvents(true);
+                } catch (err: any) {
+                  alert('Ошибка загрузки: ' + err.message);
+                }
+              }}
+            />
+          </div>
           {/* Кнопки */}
           <div className="flex gap-4">
             <button type="submit" className="bg-blue-500 text-white px-4 py-2 rounded">
