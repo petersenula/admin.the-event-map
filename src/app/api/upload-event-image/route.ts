@@ -94,14 +94,24 @@ export async function POST(req: NextRequest) {
 
     // update DB row by id OR uuid
     const { data: updated, error: upErr } = await supabase
-      .from('events')
-      .update({
+    .from('events')
+    .update({
         image_url: publicUrl,
         image_source: 'manual',
         image_checked_at: new Date().toISOString(),
-      })
-      .or(`id.eq.${eventId},uuid.eq.${eventId}`)
-      .select('id');
+    })
+    .eq('id', eventId)
+    .select('id');
+
+    if (upErr) {
+    const msg =
+        (upErr as any)?.message ??
+        (typeof upErr === 'string' ? upErr : JSON.stringify(upErr));
+    return NextResponse.json({ error: 'db update: ' + msg }, { status: 500 });
+    }
+    if (!updated || updated.length === 0) {
+    return NextResponse.json({ error: 'event not found by id' }, { status: 404 });
+    }
 
     if (upErr) {
       const msg =
