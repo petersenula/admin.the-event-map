@@ -3,11 +3,41 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
 
+/** Делает относительные пути абсолютными относительно страницы */
 function absolutize(base: string, maybe?: string) {
-  try { return maybe ? new URL(maybe, base).toString() : undefined; }
-  catch { return undefined; }
+  try {
+    return maybe ? new URL(maybe, base).toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
+/** Небольшой ретраер для нестабильных 5xx */
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  attempts = 3,
+  delayMs = 700
+): Promise<Response> {
+  let lastErr: any;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const r = await fetch(url, init);
+      if (r.ok) return r;
+      if (r.status >= 500) {
+        await new Promise(res => setTimeout(res, delayMs * (i + 1)));
+        continue;
+      }
+      return r;
+    } catch (e) {
+      lastErr = e;
+      await new Promise(res => setTimeout(res, delayMs * (i + 1)));
+    }
+  }
+  throw lastErr ?? new Error('fetch failed');
+}
+
+/** Ищем лучший URL картинки на странице события */
 async function pickImageUrlFromHtml(pageUrl: string, html: string) {
   const $ = cheerio.load(html);
 
@@ -22,7 +52,8 @@ async function pickImageUrlFromHtml(pageUrl: string, html: string) {
   // 3) JSON-LD schema.org
   const blocks: string[] = [];
   $('script[type="application/ld+json"]').each((_, el) => {
-    const t = $(el).text(); if (t) blocks.push(t);
+    const t = $(el).text();
+    if (t) blocks.push(t);
   });
   for (const b of blocks) {
     try {
@@ -36,11 +67,26 @@ async function pickImageUrlFromHtml(pageUrl: string, html: string) {
     } catch {}
   }
 
-  // 4) link rel="image_src"
+  // 4) srcset (часто крупный вариант только здесь)
+  const candidatesFromSrcset: string[] = [];
+  $('img[srcset]').each((_, el) => {
+    const ss = ($(el).attr('srcset') || '').split(',').map(s => s.trim());
+    ss.forEach(item => {
+      const [src] = item.split(' ');
+      if (src) candidatesFromSrcset.push(src);
+    });
+  });
+  if (candidatesFromSrcset.length) {
+    const last = candidatesFromSrcset[candidatesFromSrcset.length - 1]; // обычно самый крупный
+    const abs = absolutize(pageUrl, last);
+    if (abs) return abs;
+  }
+
+  // 5) link rel="image_src"
   const linkImg = $('link[rel="image_src"]').attr('href');
   if (linkImg) return absolutize(pageUrl, linkImg);
 
-  // 5) первая достаточно крупная <img>
+  // 6) первая достаточно крупная <img>
   let best: { src?: string; area: number } = { area: 0 };
   $('img').each((_, el) => {
     const src = $(el).attr('src') || $(el).attr('data-src');
@@ -56,42 +102,73 @@ async function pickImageUrlFromHtml(pageUrl: string, html: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { url, eventId } = await req.json() as { url: string; eventId: string };
-    if (!url || !eventId) return NextResponse.json({ error: 'url and eventId required' }, { status: 400 });
+    const body = (await req.json()) as { url: string; eventId: string };
+    let { url, eventId } = body || ({} as any);
 
-    const pageRes = await fetch(url, {
+    if (!url || !eventId) {
+      return NextResponse.json({ error: 'url and eventId required' }, { status: 400 });
+    }
+
+    // Нормализуем URL (добавим https:// если не указан протокол)
+    url = url.trim();
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+
+    // Проверка env
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      return NextResponse.json({ error: 'NEXT_PUBLIC_SUPABASE_URL is missing' }, { status: 500 });
+    }
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY is missing (server env)' }, { status: 500 });
+    }
+
+    // Загружаем страницу события (с ретраями)
+    const pageRes = await fetchWithRetry(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (EventMap Bot)' },
       redirect: 'follow'
     });
-    if (!pageRes.ok) return NextResponse.json({ error: `cant fetch page: ${pageRes.status}` }, { status: 400 });
+    if (!pageRes.ok) {
+      return NextResponse.json({ error: `cant fetch page: ${pageRes.status}` }, { status: 400 });
+    }
     const html = await pageRes.text();
 
+    // Ищем картинку
     const imageUrl = await pickImageUrlFromHtml(url, html);
     if (!imageUrl) return NextResponse.json({ error: 'image not found' }, { status: 404 });
 
-    const imgRes = await fetch(imageUrl, { redirect: 'follow' });
-    if (!imgRes.ok) return NextResponse.json({ error: `cant fetch image: ${imgRes.status}` }, { status: 400 });
+    // Скачиваем картинку (Referer и ретраи помогают на некоторых доменах)
+    const imgRes = await fetchWithRetry(imageUrl, {
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (EventMap Bot)',
+        'Accept': 'image/avif,image/webp,image/*,*/*;q=0.8',
+        'Referer': url
+      }
+    });
+    if (!imgRes.ok) {
+      return NextResponse.json({ error: `cant fetch image: ${imgRes.status}` }, { status: 400 });
+    }
 
     const contentType = imgRes.headers.get('content-type') || '';
     if (!contentType.startsWith('image/')) {
       return NextResponse.json({ error: 'not an image' }, { status: 415 });
     }
 
-    // Приводим к Uint8Array — совместимо и с sharp, и с Supabase upload
+    // Готовим байты (Uint8Array совместим и с sharp, и с Supabase)
     const arr = await imgRes.arrayBuffer();
     let bytes: Uint8Array | Buffer = new Uint8Array(arr);
 
+    // Опциональный ресайз для единообразия и веса
     try {
-    const sharp = (await import('sharp')).default;
-    // sharp принимает Uint8Array, отдаёт Buffer — тип совместим с Uint8Array | Buffer
-    bytes = await sharp(bytes)
+      const sharp = (await import('sharp')).default;
+      bytes = await sharp(bytes)
         .resize(1200, 630, { fit: 'cover' })
         .jpeg({ quality: 82 })
         .toBuffer();
     } catch {
-    // если sharp недоступен — оставим оригинальные bytes
+      // если sharp недоступен — используем оригинальные bytes
     }
 
+    // Сохраняем в Storage и обновляем events
     const { createClient } = await import('@supabase/supabase-js');
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -100,15 +177,17 @@ export async function POST(req: NextRequest) {
 
     const fileName = `${eventId}_${Date.now()}.jpg`;
     const { data: put, error: putErr } = await supabase.storage
-    .from('event-images')
-    .upload(fileName, bytes, { contentType: 'image/jpeg', upsert: false });
+      .from('event-images')
+      .upload(fileName, bytes, { contentType: 'image/jpeg', upsert: false });
 
-    if (putErr) return NextResponse.json({ error: putErr.message }, { status: 500 });
+    if (putErr) {
+      return NextResponse.json({ error: 'storage upload: ' + putErr.message }, { status: 500 });
+    }
+
     const { data: pub } = supabase.storage.from('event-images').getPublicUrl(put.path);
     const publicUrl = pub?.publicUrl;
 
-    // Запишем поля в events
-    await supabase
+    const { error: upErr } = await supabase
       .from('events')
       .update({
         image_url: publicUrl,
@@ -116,6 +195,10 @@ export async function POST(req: NextRequest) {
         image_checked_at: new Date().toISOString()
       })
       .eq('id', eventId);
+
+    if (upErr) {
+      return NextResponse.json({ error: 'db update: ' + upErr.message }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, publicUrl, source: imageUrl });
   } catch (e: any) {
