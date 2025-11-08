@@ -77,17 +77,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'not an image' }, { status: 415 });
     }
 
+    // Приводим к Uint8Array — совместимо и с sharp, и с Supabase upload
     const arr = await imgRes.arrayBuffer();
-    let buffer = Buffer.from(arr);
+    let bytes: Uint8Array | Buffer = new Uint8Array(arr);
 
-    // ресайз (по желанию — красиво и единообразно)
     try {
-      const sharp = (await import('sharp')).default;
-      buffer = await sharp(buffer)
+    const sharp = (await import('sharp')).default;
+    // sharp принимает Uint8Array, отдаёт Buffer — тип совместим с Uint8Array | Buffer
+    bytes = await sharp(bytes)
         .resize(1200, 630, { fit: 'cover' })
         .jpeg({ quality: 82 })
         .toBuffer();
-    } catch {}
+    } catch {
+    // если sharp недоступен — оставим оригинальные bytes
+    }
 
     const { createClient } = await import('@supabase/supabase-js');
     const supabase = createClient(
@@ -97,8 +100,8 @@ export async function POST(req: NextRequest) {
 
     const fileName = `${eventId}_${Date.now()}.jpg`;
     const { data: put, error: putErr } = await supabase.storage
-      .from('event-images')
-      .upload(fileName, buffer, { contentType: 'image/jpeg', upsert: false });
+    .from('event-images')
+    .upload(fileName, bytes, { contentType: 'image/jpeg', upsert: false });
 
     if (putErr) return NextResponse.json({ error: putErr.message }, { status: 500 });
     const { data: pub } = supabase.storage.from('event-images').getPublicUrl(put.path);
