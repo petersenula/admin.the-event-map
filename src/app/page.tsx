@@ -1061,38 +1061,67 @@ export default function Home() {
       <hr className="mt-4 border-black" />
       <div className="space-y-2">
         {events.map(event => (
-          <div key={event.id}
-            id={`event-${event.id}`}  className="bg-white p-4 shadow rounded border border-gray-200 space-y-1">
-            {event.image_url ? (
-              <img
-                src={event.image_url}
-                alt={event.title || 'Event cover'}
-                loading="lazy"
-                className="w-full aspect-[16/9] object-cover rounded-lg bg-neutral-200 mb-2"
-              />
-            ) : null}
-            <div className="font-bold text-black text-base">{event.title}</div>
-            <div className="text-sm text-gray-600">
-              {formatDate(event.start_date)} {event.start_time?.slice(0, 5)}
-              {event.end_date ? (
-                <> — {formatDate(event.end_date)} {event.end_time?.slice(0, 5)}</>
-              ) : null}
-            </div>
-            <div className="text-sm text-blue-700 underline">{event.website}</div>
-            <div className="flex gap-4 mt-2">
-              <button onClick={() => deleteEvent(event.id)} className="text-red-500">
-                {t.delete}
-              </button>
-              <button onClick={() => editEvent(event)} className="text-blue-500">
-                {t.edit}
-              </button>
-              <button onClick={() => copyEvent(event)} className="text-green-500">
-                {t.copy}
-              </button>
-            </div>
-            <hr className="mt-4 border-black" />
+      <div
+        key={event.id}
+        id={`event-${event.id}`}
+        className="bg-white p-3 md:p-4 shadow rounded border border-gray-200"
+      >
+      <div className="flex items-start gap-3 md:gap-4">
+        {/* превью слева */}
+        {event.image_url ? (
+          <img
+            src={event.image_url}
+            alt={event.title || 'Event cover'}
+            loading="lazy"
+            width={160}
+            height={90}
+            className="w-[120px] h-[68px] md:w-[160px] md:h-[90px] object-cover rounded bg-neutral-200 shrink-0"
+          />
+        ) : (
+          <div className="w-[120px] h-[68px] md:w-[160px] md:h-[90px] rounded bg-neutral-200 shrink-0" />
+        )}
+
+        {/* контент справа */}
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-black text-base leading-tight line-clamp-2">
+            {event.title}
           </div>
-        ))}
+
+          <div className="text-sm text-gray-600 mt-1">
+            {formatDate(event.start_date)} {event.start_time?.slice(0, 5)}
+            {event.end_date ? (
+              <> — {formatDate(event.end_date)} {event.end_time?.slice(0, 5)}</>
+            ) : null}
+          </div>
+
+          {event.website ? (
+            <a
+              href={event.website}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-blue-700 underline break-all"
+            >
+              {event.website}
+            </a>
+          ) : null}
+
+          <div className="flex flex-wrap gap-4 mt-2">
+            <button onClick={() => deleteEvent(event.id)} className="text-red-500">
+              {t.delete}
+            </button>
+            <button onClick={() => editEvent(event)} className="text-blue-500">
+              {t.edit}
+            </button>
+            <button onClick={() => copyEvent(event)} className="text-green-500">
+              {t.copy}
+            </button>
+          </div>
+        </div>
+      </div>
+    <hr className="mt-3 md:mt-4 border-black/10" />
+  </div>
+))}
+
         {hasMore && (
           <div className="text-center mt-4">
             <button
