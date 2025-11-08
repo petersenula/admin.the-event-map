@@ -3,6 +3,9 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+const TARGET_W = 800;
+const TARGET_H = 450;
+
 export async function POST(req: NextRequest) {
   try {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
@@ -17,7 +20,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'url and eventId required' }, { status: 400 });
     }
 
-    // скачиваем картинку с исходного сайта
     const resp = await fetch(url, {
       redirect: 'follow',
       headers: {
@@ -36,19 +38,37 @@ export async function POST(req: NextRequest) {
     }
 
     const arr = await resp.arrayBuffer();
-    const bytes = new Uint8Array(arr);
+    let bytes = new Uint8Array(arr);
+    let contentType = 'image/webp';
+    let ext = 'webp';
+
+    // Уменьшаем и конвертируем в WEBP
+    try {
+      const sharp = (await import('sharp')).default;
+      bytes = await sharp(bytes)
+        .resize(TARGET_W, TARGET_H, { fit: 'cover' })
+        .webp({ quality: 80 })
+        .toBuffer();
+    } catch {
+      // Фолбек: оставим оригинал и его content-type/расширение
+      contentType = ct || 'image/jpeg';
+      ext = contentType.includes('png') ? 'png' : (contentType.includes('webp') ? 'webp' : 'jpg');
+    }
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const ext = ct.includes('png') ? 'png' : 'jpg';
     const fileName = `${eventId}_${Date.now()}.${ext}`;
 
     const { data: uploaded, error: uploadError } = await supabase.storage
       .from('event-images')
-      .upload(fileName, bytes, { contentType: ct, upsert: false });
+      .upload(fileName, bytes, {
+        contentType,
+        upsert: false,
+        cacheControl: '31536000, immutable',
+      });
 
     if (uploadError) {
       return NextResponse.json({ error: 'storage upload: ' + uploadError.message }, { status: 500 });
@@ -56,6 +76,9 @@ export async function POST(req: NextRequest) {
 
     const { data: pub } = supabase.storage.from('event-images').getPublicUrl(uploaded.path);
     const publicUrl = pub?.publicUrl;
+    if (!publicUrl) {
+      return NextResponse.json({ error: 'no publicUrl from storage' }, { status: 500 });
+    }
 
     const { error: upErr } = await supabase
       .from('events')

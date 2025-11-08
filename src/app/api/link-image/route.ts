@@ -153,18 +153,24 @@ export async function POST(req: NextRequest) {
     }
 
     // Готовим байты (Uint8Array совместим и с sharp, и с Supabase)
+   // Готовим байты (Uint8Array совместим и с sharp, и с Supabase)
     const arr = await imgRes.arrayBuffer();
     let bytes: Uint8Array | Buffer = new Uint8Array(arr);
+    let contentType = 'image/webp';
+    let ext = 'webp';
 
-    // Опциональный ресайз для единообразия и веса
+    // Опциональный ресайз/перекод в компактный WEBP 800×450
     try {
-      const sharp = (await import('sharp')).default;
-      bytes = await sharp(bytes)
-        .resize(1200, 630, { fit: 'cover' })
-        .jpeg({ quality: 82 })
+    const sharp = (await import('sharp')).default;
+    bytes = await sharp(bytes)
+        .resize(800, 450, { fit: 'cover' })
+        .webp({ quality: 80 })
         .toBuffer();
     } catch {
-      // если sharp недоступен — используем оригинальные bytes
+    // Фолбек: оставим оригинальные байты и выставим тип из ответа
+    contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+    ext = contentType.includes('png') ? 'png'
+        : (contentType.includes('webp') ? 'webp' : 'jpg');
     }
 
     // Сохраняем в Storage и обновляем events
@@ -174,10 +180,14 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY! // серверный ключ
     );
 
-    const fileName = `${eventId}_${Date.now()}.jpg`;
+    const fileName = `${eventId}_${Date.now()}.${ext}`;
     const { data: put, error: putErr } = await supabase.storage
-      .from('event-images')
-      .upload(fileName, bytes, { contentType: 'image/jpeg', upsert: false });
+    .from('event-images')
+    .upload(fileName, bytes, {
+        contentType,
+        upsert: false,
+        cacheControl: '31536000, immutable',
+    });
 
     if (putErr) {
       return NextResponse.json({ error: 'storage upload: ' + putErr.message }, { status: 500 });

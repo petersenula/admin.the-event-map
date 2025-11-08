@@ -3,6 +3,9 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+const TARGET_W = 800;
+const TARGET_H = 450;
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -14,20 +17,36 @@ export async function POST(req: NextRequest) {
     }
 
     const arrayBuffer = await file.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
+    let bytes = new Uint8Array(arrayBuffer);
+    let contentType = 'image/webp';
+    let ext = 'webp';
+
+    // Пытаемся уменьшить и перекодировать в WEBP
+    try {
+      const sharp = (await import('sharp')).default;
+      bytes = await sharp(bytes)
+        .resize(TARGET_W, TARGET_H, { fit: 'cover' })
+        .webp({ quality: 80 })
+        .toBuffer();
+    } catch {
+      // Фолбек: оставим как есть
+      contentType = file.type || 'image/jpeg';
+      ext = contentType.includes('png') ? 'png' : (contentType.includes('webp') ? 'webp' : 'jpg');
+    }
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const fileName = `${eventId}_${Date.now()}.jpg`;
+    const fileName = `${eventId}_${Date.now()}.${ext}`;
 
     const { data: uploaded, error: uploadError } = await supabase.storage
       .from('event-images')
       .upload(fileName, bytes, {
-        contentType: file.type || 'image/jpeg',
+        contentType,
         upsert: false,
+        cacheControl: '31536000, immutable',
       });
 
     if (uploadError) {
@@ -39,8 +58,10 @@ export async function POST(req: NextRequest) {
       .getPublicUrl(uploaded.path);
 
     const publicUrl = pub?.publicUrl;
+    if (!publicUrl) {
+      return NextResponse.json({ error: 'no publicUrl from storage' }, { status: 500 });
+    }
 
-    // обновляем запись в таблице events
     await supabase
       .from('events')
       .update({
