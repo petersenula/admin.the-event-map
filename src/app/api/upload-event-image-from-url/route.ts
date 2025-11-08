@@ -8,6 +8,7 @@ const TARGET_H = 450;
 
 export async function POST(req: NextRequest) {
   try {
+    // env проверки
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
       return NextResponse.json({ error: 'NEXT_PUBLIC_SUPABASE_URL is missing' }, { status: 500 });
     }
@@ -15,65 +16,70 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY is missing on server' }, { status: 500 });
     }
 
-    const { url, eventId } = await req.json() as { url?: string; eventId?: string };
+    // входные данные
+    const { url, eventId } = (await req.json()) as { url?: string; eventId?: string };
     if (!url || !eventId) {
       return NextResponse.json({ error: 'url and eventId required' }, { status: 400 });
     }
 
+    // скачиваем исходник
     const resp = await fetch(url, {
       redirect: 'follow',
       headers: {
         'User-Agent': 'Mozilla/5.0 (EventMap Bot)',
-        'Accept': 'image/avif,image/webp,image/*,*/*;q=0.8',
-        'Referer': url
-      }
+        Accept: 'image/avif,image/webp,image/*,*/*;q=0.8',
+        Referer: url,
+      },
     });
     if (!resp.ok) {
       return NextResponse.json({ error: `cant fetch image: ${resp.status}` }, { status: 400 });
     }
 
-    const ct = resp.headers.get('content-type') || '';
-    if (!ct.startsWith('image/')) {
+    // ОБЯЗАТЕЛЬНО: объявляем srcContentType
+    const srcContentType = resp.headers.get('content-type') || '';
+    if (!srcContentType.startsWith('image/')) {
       return NextResponse.json({ error: 'not an image' }, { status: 415 });
     }
 
+    // байты исходника
     const arr = await resp.arrayBuffer();
-
-    // Изначально держим как Uint8Array c нормальным ArrayBuffer
     let bytes = new Uint8Array(arr);
 
-    // Что будем отправлять в storage:
+    // тип/расширение выходного файла (по умолчанию — webp превью)
     let outContentType = 'image/webp';
     let outExt = 'webp';
 
+    // уменьшаем и конвертируем
     try {
-    const sharp = (await import('sharp')).default;
+      const sharp = (await import('sharp')).default;
 
-    // sharp удобнее кормить Buffer:
-    const inputBuf = Buffer.from(bytes);
+      // sharp → в Buffer
+      const inputBuf = Buffer.from(bytes);
 
-    // Делаем превью
-    const outBuf = await sharp(inputBuf)
+      const outBuf = await sharp(inputBuf)
         .resize(TARGET_W, TARGET_H, { fit: 'cover' })
         .webp({ quality: 80 })
         .toBuffer();
 
-    // ВАЖНО: Превращаем Buffer в ЧИСТЫЙ ArrayBuffer (а не ArrayBufferLike)
-    const outAb = outBuf.buffer.slice(
+      // ВАЖНО: делаем ЧИСТЫЙ ArrayBuffer (а не ArrayBufferLike)
+      const outAb = outBuf.buffer.slice(
         outBuf.byteOffset,
         outBuf.byteOffset + outBuf.byteLength
-    ) as ArrayBuffer;
+      ) as ArrayBuffer;
 
-    // Дальше снова работаем как с Uint8Array<ArrayBuffer>
-    bytes = new Uint8Array(outAb);
+      // снова Uint8Array поверх нормального ArrayBuffer — TS доволен
+      bytes = new Uint8Array(outAb);
     } catch {
-    // Фолбек: используем оригинал и правильные тип/расширение
-    outContentType = srcContentType || 'image/jpeg';
-    outExt = outContentType.includes('png')
+      // фолбек — сохранить оригинал
+      outContentType = srcContentType || 'image/jpeg';
+      outExt = outContentType.includes('png')
         ? 'png'
-        : (outContentType.includes('webp') ? 'webp' : 'jpg');
+        : outContentType.includes('webp')
+        ? 'webp'
+        : 'jpg';
     }
 
+    // загрузка в Supabase Storage
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -81,12 +87,12 @@ export async function POST(req: NextRequest) {
 
     const fileName = `${eventId}_${Date.now()}.${outExt}`;
     const { data: uploaded, error: uploadError } = await supabase.storage
-    .from('event-images')
-    .upload(fileName, bytes, {
+      .from('event-images')
+      .upload(fileName, bytes, {
         contentType: outContentType,
         upsert: false,
         cacheControl: '31536000, immutable',
-    });
+      });
 
     if (uploadError) {
       return NextResponse.json({ error: 'storage upload: ' + uploadError.message }, { status: 500 });
@@ -98,12 +104,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'no publicUrl from storage' }, { status: 500 });
     }
 
+    // обновление записи события
     const { error: upErr } = await supabase
       .from('events')
       .update({
         image_url: publicUrl,
         image_source: url,
-        image_checked_at: new Date().toISOString()
+        image_checked_at: new Date().toISOString(),
       })
       .eq('id', eventId);
 
