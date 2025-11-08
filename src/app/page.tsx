@@ -45,6 +45,10 @@ export default function Home() {
   const formats = t.formatOptions;
   const [search, setSearch] = useState('');     // что ввёл пользователь
   const [isSearching, setIsSearching] = useState(false); // индикатор поиска
+  // UI для вставки/загрузки обложки
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null); // что показываем админке в превью (blob/remote)
+  const [coverMessage, setCoverMessage] = useState<string | null>(null);       // статус "Загружаю..." / "Готово" / ошибка
 
   // где стейты:
   const formRef = useRef<HTMLDivElement | null>(null);
@@ -357,25 +361,52 @@ export default function Home() {
 
   // ⬇️ вставь рядом с остальными хелперами компонента
   async function uploadFileToBucket(file: File, eventId: string) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('eventId', eventId);
+    setCoverUploading(true);
+    setCoverMessage('Загружаю файл в хранилище…');
 
-    const resp = await fetch('/api/upload-event-image', { method: 'POST', body: formData });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data?.error || 'Upload failed');
-    return data.publicUrl as string | undefined;
+    // локальное превью до аплоада
+    const objectUrl = URL.createObjectURL(file);
+    setCoverPreviewUrl(objectUrl);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('eventId', eventId);
+
+      const resp = await fetch('/api/upload-event-image', { method: 'POST', body: formData });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || 'Upload failed');
+
+      // показываем итоговую публичную ссылку
+      if (data.publicUrl) setCoverPreviewUrl(data.publicUrl);
+      setCoverMessage('✅ Готово');
+      return data.publicUrl as string | undefined;
+    } finally {
+      setCoverUploading(false);
+    }
   }
 
   async function uploadImageFromUrl(imgUrl: string, eventId: string) {
-    const resp = await fetch('/api/upload-event-image-from-url', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: imgUrl, eventId })
-    });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data?.error || 'Fetch-by-URL failed');
-    return data.publicUrl as string | undefined;
+    setCoverUploading(true);
+    setCoverMessage('Скачиваю картинку по ссылке и загружаю…');
+    // предварительное превью — сразу покажем URL
+    setCoverPreviewUrl(imgUrl);
+
+    try {
+      const resp = await fetch('/api/upload-event-image-from-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: imgUrl, eventId })
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || 'Fetch-by-URL failed');
+
+      if (data.publicUrl) setCoverPreviewUrl(data.publicUrl);
+      setCoverMessage('✅ Готово');
+      return data.publicUrl as string | undefined;
+    } finally {
+      setCoverUploading(false);
+    }
   }
 
   async function handlePasteImage(e: React.ClipboardEvent<HTMLDivElement>) {
@@ -385,51 +416,71 @@ export default function Home() {
         return;
       }
 
+      setCoverMessage(null);
+
       const cd = e.clipboardData;
 
-      // 1) Если в буфере есть файлы-картинки
-      const items = Array.from(cd.items);
-      for (const it of items) {
+      // 1) файл из буфера
+      for (const it of Array.from(cd.items)) {
         if (it.kind === 'file' && it.type.startsWith('image/')) {
           const file = it.getAsFile();
           if (file) {
-            const url = await uploadFileToBucket(file, editingId);
-            alert('✅ Картинка вставлена из буфера');
+            await uploadFileToBucket(file, editingId);
             await fetchEvents(true);
             return;
           }
         }
       }
 
-      // 2) Иначе пробуем как текст — вдруг это URL картинки
-      const text = cd.getData('text/plain')?.trim();
-      if (text) {
-        // если вставили data:URL (base64) — превращаем в File и грузим
-        if (text.startsWith('data:image/')) {
-          const res = await fetch(text);
-          const blob = await res.blob();
-          const file = new File([blob], `pasted_${Date.now()}.png`, { type: blob.type || 'image/png' });
-          const url = await uploadFileToBucket(file, editingId);
-          alert('✅ Картинка вставлена (data URL)');
+      // 2) data:URL
+      const plain = cd.getData('text/plain')?.trim();
+      if (plain?.startsWith('data:image/')) {
+        const res = await fetch(plain);
+        const blob = await res.blob();
+        const file = new File([blob], `pasted_${Date.now()}.png`, { type: blob.type || 'image/png' });
+        await uploadFileToBucket(file, editingId);
+        await fetchEvents(true);
+        return;
+      }
+
+      // 3) прямая ссылка
+      if (plain && /^https?:\/\//i.test(plain)) {
+        await uploadImageFromUrl(plain, editingId);
+        await fetchEvents(true);
+        return;
+      }
+
+      // 4) HTML из буфера (Safari): ищем <img src="..."> или background-image:url(...)
+      const html = cd.getData('text/html');
+      if (html) {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const img = doc.querySelector('img');
+        if (img?.src) {
+          await uploadImageFromUrl(img.src, editingId);
           await fetchEvents(true);
           return;
         }
-
-        // если это http(s) — грузим с сервера
-        if (/^https?:\/\//i.test(text)) {
-          const url = await uploadImageFromUrl(text, editingId);
-          alert('✅ Картинка загружена по ссылке');
-          await fetchEvents(true);
-          return;
+        const elWithBg = Array.from(doc.querySelectorAll<HTMLElement>('*'))
+          .find(el => {
+            const bg = el.getAttribute('style') || '';
+            return /background(-image)?:/i.test(bg) && /url\(/i.test(bg);
+          });
+        if (elWithBg) {
+          const m = (elWithBg.getAttribute('style') || '').match(/url\((['"]?)(.+?)\1\)/i);
+          const src = m?.[2];
+          if (src) {
+            await uploadImageFromUrl(src, editingId);
+            await fetchEvents(true);
+            return;
+          }
         }
       }
 
-      alert('Не нашла картинку в буфере. Скопируй саму картинку (не страницу) или вставь ссылку на файл .jpg/.png');
+      setCoverMessage('Не нашла картинку в буфере. Скопируй саму картинку или «Copy image address».');
     } catch (err: any) {
-      alert('Ошибка вставки: ' + err.message);
+      setCoverMessage('Ошибка: ' + err.message);
     }
   }
-
 
   const [sortBy, setSortBy] = useState<'created_at' | 'start_date' | 'end_date' | 'title'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -845,43 +896,66 @@ export default function Home() {
           {/* Загрузка своей картинки */}
           <div className="flex flex-col gap-2">
             <label className="font-semibold text-gray-700">
-              Картинка события (если хочешь выбрать вручную)
+              Image upload (manual upload or upload below)
             </label>
             <input
               type="file"
               accept="image/*"
+              disabled={!editingId || coverUploading}
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
+                if (!editingId) { alert('First save the event'); e.currentTarget.value = ''; return; }
                 try {
-                  const formData = new FormData();
-                  formData.append('file', file);
-                  formData.append('eventId', editingId || 'new');
-                  const resp = await fetch('/api/upload-event-image', {
-                    method: 'POST',
-                    body: formData,
-                  });
-                  const data = await resp.json();
-                  if (!resp.ok) throw new Error(data.error || 'Upload failed');
-                  alert('✅ Картинка загружена');
+                  await uploadFileToBucket(file, editingId);
                   await fetchEvents(true);
                 } catch (err: any) {
-                  alert('Ошибка загрузки: ' + err.message);
+                  setCoverMessage('Error: ' + err.message);
+                } finally {
+                  e.currentTarget.value = '';
                 }
               }}
+              className={!editingId ? 'opacity-50 cursor-not-allowed' : ''}
             />
           </div>
-          {/* Вставка картинки из буфера: Ctrl/⌘+V (поддерживает и картинку, и ссылку) */}
-          <div
-            onPaste={handlePasteImage}
-            className="border border-dashed rounded p-3 mt-2 bg-gray-50"
-            title="Скопируй картинку на сайте → кликни сюда → Ctrl/⌘+V"
-          >
-            <div className="text-sm text-gray-700">
-              Вставь картинку (Ctrl/⌘+V) или ссылку на неё. Работает и с правым кликом «Copy image».
+          {/* Вставка из буфера/URL */}
+          <div className="mt-2">
+            <div
+              contentEditable
+              suppressContentEditableWarning
+              tabIndex={0}
+              onPaste={handlePasteImage}
+              className={`border border-dashed rounded p-3 bg-gray-50 outline-none min-h-[56px] cursor-text
+                          ${coverUploading ? 'opacity-80' : ''}`}
+              title="Click here, than Ctrl/⌘+V (you can insert an image or a link)"
+              aria-live="polite"
+            >
+              <div className="text-sm text-gray-700">
+                Insert image (Ctrl/⌘+V) or a link to it. Works with с right click «Copy image».
+              </div>
             </div>
-          </div>
 
+            {/* Статус + превью */}
+            {(coverUploading || coverMessage || coverPreviewUrl) && (
+              <div className="mt-2 flex items-start gap-3">
+                {/* Спиннер */}
+                {coverUploading && (
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-transparent" />
+                )}
+
+                <div className="flex-1">
+                  {coverMessage && <div className="text-sm text-gray-700">{coverMessage}</div>}
+                  {coverPreviewUrl && (
+                    <img
+                      src={coverPreviewUrl}
+                      alt="Preview"
+                      className="mt-2 max-h-32 rounded border object-contain bg-neutral-100"
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           {/* Кнопки */}
           <div className="flex gap-4">
             <button type="submit" className="bg-blue-500 text-white px-4 py-2 rounded">
