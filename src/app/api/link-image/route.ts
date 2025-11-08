@@ -41,19 +41,18 @@ async function fetchWithRetry(
 async function pickImageUrlFromHtml(pageUrl: string, html: string) {
   const $ = cheerio.load(html);
 
-  // 1) og:image
+  // 1️⃣ og:image
   const og = $('meta[property="og:image"]').attr('content');
   if (og) return absolutize(pageUrl, og);
 
-  // 2) twitter:image
+  // 2️⃣ twitter:image
   const tw = $('meta[name="twitter:image"], meta[name="twitter:image:src"]').attr('content');
   if (tw) return absolutize(pageUrl, tw);
 
-  // 3) JSON-LD schema.org
+  // 3️⃣ JSON-LD
   const blocks: string[] = [];
   $('script[type="application/ld+json"]').each((_, el) => {
-    const t = $(el).text();
-    if (t) blocks.push(t);
+    const t = $(el).text(); if (t) blocks.push(t);
   });
   for (const b of blocks) {
     try {
@@ -67,36 +66,36 @@ async function pickImageUrlFromHtml(pageUrl: string, html: string) {
     } catch {}
   }
 
-  // 4) srcset (часто крупный вариант только здесь)
-  const candidatesFromSrcset: string[] = [];
-  $('img[srcset]').each((_, el) => {
-    const ss = ($(el).attr('srcset') || '').split(',').map(s => s.trim());
-    ss.forEach(item => {
-      const [src] = item.split(' ');
-      if (src) candidatesFromSrcset.push(src);
-    });
-  });
-  if (candidatesFromSrcset.length) {
-    const last = candidatesFromSrcset[candidatesFromSrcset.length - 1]; // обычно самый крупный
-    const abs = absolutize(pageUrl, last);
-    if (abs) return abs;
-  }
-
-  // 5) link rel="image_src"
+  // 4️⃣ link rel="image_src"
   const linkImg = $('link[rel="image_src"]').attr('href');
   if (linkImg) return absolutize(pageUrl, linkImg);
 
-  // 6) первая достаточно крупная <img>
-  let best: { src?: string; area: number } = { area: 0 };
-  $('img').each((_, el) => {
-    const src = $(el).attr('src') || $(el).attr('data-src');
-    const w = parseInt($(el).attr('width') || '0', 10);
-    const h = parseInt($(el).attr('height') || '0', 10);
-    const area = (isFinite(w) ? w : 0) * (isFinite(h) ? h : 0);
-    if (src && area >= best.area && area >= 300 * 200) best = { src, area };
-  });
-  if (best.src) return absolutize(pageUrl, best.src);
+  // 5️⃣ srcset (если есть)
+  const srcset = $('img[srcset]').attr('srcset');
+  if (srcset) {
+    const parts = srcset.split(',').map(s => s.trim().split(' ')[0]);
+    const last = parts[parts.length - 1];
+    if (last) return absolutize(pageUrl, last);
+  }
 
+  // 6️⃣ fallback — ищем первую осмысленную <img>
+  const imgs = $('img');
+  for (let i = 0; i < imgs.length; i++) {
+    const el = imgs[i];
+    const src = $(el).attr('src') || $(el).attr('data-src');
+    if (!src) continue;
+    // берём только настоящие картинки, не иконки и не логотипы
+    const lower = src.toLowerCase();
+    if (
+      lower.includes('.jpg') ||
+      lower.includes('.jpeg') ||
+      lower.includes('.png')
+    ) {
+      return absolutize(pageUrl, src);
+    }
+  }
+
+  // ничего не нашли
   return undefined;
 }
 
