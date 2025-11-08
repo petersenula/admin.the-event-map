@@ -338,9 +338,41 @@ export default function Home() {
     }
   };
 
+  async function refreshImageForEditing() {
+    if (!editingId) {
+      alert('Сначала выбери событие для редактирования');
+      return;
+    }
+    const website = (watch('website') || '').trim();
+    if (!website) {
+      alert('Добавь ссылку на сайт события (поле «Сайт»), чтобы я подтянула картинку.');
+      return;
+    }
+
+    try {
+      setImageRefreshing(true);
+      setCoverMessage(null);
+      await fetchAndAttachEventImage(editingId, website, null, { force: true });
+      setCoverMessage('✅ Картинка подтянута');
+    } catch (e: any) {
+      setCoverMessage('Ошибка: ' + (e?.message || 'не удалось подтянуть картинку'));
+    } finally {
+      setImageRefreshing(false);
+    }
+  }
+
+
   // Тянем обложку с сайта и записываем image_url в БД (делает серверный API)
-  async function fetchAndAttachEventImage(eventId: string, website?: string, existingImage?: string | null) {
-    if (!website || existingImage) return; // уже есть картинка — пропускаем
+  // Тянем обложку с сайта и записываем image_url в БД (делает серверный API)
+  async function fetchAndAttachEventImage(
+    eventId: string,
+    website?: string,
+    existingImage?: string | null,
+    opts?: { force?: boolean }
+  ) {
+    if (!website) return; // нужен сайт
+    if (existingImage && !opts?.force) return; // уже есть картинка и не форсим
+
     try {
       const resp = await fetch('/api/link-image', {
         method: 'POST',
@@ -352,7 +384,7 @@ export default function Home() {
         console.warn('image fetch failed:', data?.error);
         return;
       }
-      // data.publicUrl уже записан в БД, но можно обновить локальный список:
+      // data.publicUrl уже записан в БД, перечитываем список:
       await fetchEvents(true);
     } catch (e) {
       console.warn('fetchAndAttachEventImage error', e);
@@ -484,6 +516,7 @@ export default function Home() {
 
   const [sortBy, setSortBy] = useState<'created_at' | 'start_date' | 'end_date' | 'title'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [imageRefreshing, setImageRefreshing] = useState(false);
 
   const fetchEvents = async (reset = false) => {
     const from = reset ? 0 : firstLoadLimit + (page - 1) * loadMoreLimit;
@@ -775,6 +808,20 @@ export default function Home() {
                 {...register('website')}
                 className="border border-gray-400 h-16 text-base w-full px-4 resize overflow-auto"
               />
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={refreshImageForEditing}
+                  disabled={!editingId || imageRefreshing || coverUploading || scraping}
+                  className="bg-indigo-600 text-white px-3 py-1 rounded disabled:opacity-60"
+                  title="Скрейпит сайт из поля «Сайт» и пытается подтянуть обложку"
+                >
+                  {imageRefreshing ? 'Тяну картинку…' : 'Подтянуть картинку'}
+                </button>
+                <span className="text-xs text-gray-500">
+                  Открой событие (Редактировать) → нажми, чтобы подтянуть превью с сайта
+                </span>
+              </div>
               <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
