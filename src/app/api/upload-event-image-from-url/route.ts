@@ -38,21 +38,33 @@ export async function POST(req: NextRequest) {
     }
 
     const arr = await resp.arrayBuffer();
+    // Стартуем в виде Uint8Array
     let bytes = new Uint8Array(arr);
-    let contentType = 'image/webp';
-    let ext = 'webp';
 
-    // Уменьшаем и конвертируем в WEBP
+    // Что будем отправлять в storage:
+    let outContentType = 'image/webp';
+    let outExt = 'webp';
+
     try {
-      const sharp = (await import('sharp')).default;
-      bytes = await sharp(bytes)
+    const sharp = (await import('sharp')).default;
+
+    // В sharp лучше подавать Buffer:
+    const inputBuf = Buffer.from(bytes);
+
+    // Обработка
+    const outBuf = await sharp(inputBuf)
         .resize(TARGET_W, TARGET_H, { fit: 'cover' })
         .webp({ quality: 80 })
         .toBuffer();
+
+    // ВОТ ЭТО ГЛАВНОЕ: превращаем Buffer обратно в Uint8Array
+    bytes = new Uint8Array(outBuf.buffer, outBuf.byteOffset, outBuf.byteLength);
     } catch {
-      // Фолбек: оставим оригинал и его content-type/расширение
-      contentType = ct || 'image/jpeg';
-      ext = contentType.includes('png') ? 'png' : (contentType.includes('webp') ? 'webp' : 'jpg');
+    // Фолбек: используем оригинал и правильные тип/расширение
+    outContentType = srcContentType || 'image/jpeg';
+    outExt = outContentType.includes('png')
+        ? 'png'
+        : (outContentType.includes('webp') ? 'webp' : 'jpg');
     }
 
     const supabase = createClient(
@@ -60,15 +72,14 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const fileName = `${eventId}_${Date.now()}.${ext}`;
-
+    const fileName = `${eventId}_${Date.now()}.${outExt}`;
     const { data: uploaded, error: uploadError } = await supabase.storage
-      .from('event-images')
-      .upload(fileName, bytes, {
-        contentType,
+    .from('event-images')
+    .upload(fileName, bytes, {
+        contentType: outContentType,
         upsert: false,
         cacheControl: '31536000, immutable',
-      });
+    });
 
     if (uploadError) {
       return NextResponse.json({ error: 'storage upload: ' + uploadError.message }, { status: 500 });
