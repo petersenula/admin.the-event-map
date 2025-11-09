@@ -374,8 +374,6 @@ export default function Home() {
     }
   }
 
-
-  // Тянем обложку с сайта и записываем image_url в БД (делает серверный API)
   // Тянем обложку с сайта и записываем image_url в БД (делает серверный API)
   async function fetchAndAttachEventImage(
     eventId: string,
@@ -387,26 +385,39 @@ export default function Home() {
     if (existingImage && !opts?.force) return;
 
     try {
+      // начальное состояние — показываем только процесс
+      setCoverPreviewUrl(null);
       setCoverMessage('Подтягиваю обложку...');
+
       const resp = await fetch('/api/link-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: website, eventId }),
       });
-      const data = await resp.json();
+
+      const data = await resp.json().catch(() => ({}));
+
+      // ❌ ошибка HTTP
       if (!resp.ok) {
-        setCoverMessage('Не удалось подтянуть: ' + (data?.error || resp.status));
+        setCoverPreviewUrl(null);
+        setCoverMessage('Can not upload. Please enter the link or file from buffer below.');
         return;
       }
-      if (data.publicUrl) {
-        setCoverPreviewUrl(data.publicUrl);
-        setValue('image_url', data.publicUrl as any);
-        setCoverMessage('✅ Готово');
-      } else {
-        setCoverMessage('Картинка подтянулась, но publicUrl не вернулся');
+
+      // ❌ нет публичного URL — считаем неуспехом
+      if (!data?.publicUrl) {
+        setCoverPreviewUrl(null);
+        setCoverMessage('Can not upload. Please enter the link or file from buffer below.');
+        return;
       }
+
+      // ✅ успех
+      setCoverPreviewUrl(data.publicUrl);
+      setValue('image_url', data.publicUrl as any);
+      setCoverMessage('✅ Image uploaded');
     } catch (e: any) {
-      setCoverMessage('Ошибка: ' + (e?.message || 'не удалось подтянуть картинку'));
+      setCoverPreviewUrl(null);
+      setCoverMessage('Can not upload. Please enter the link or file from buffer below.');
     }
   }
 
@@ -841,10 +852,10 @@ export default function Home() {
                   className="bg-indigo-600 text-white px-3 py-1 rounded disabled:opacity-60"
                   title="Скрейпит сайт из поля «Сайт» и пытается подтянуть обложку"
                 >
-                  {imageRefreshing ? 'Тяну картинку…' : 'Подтянуть картинку'}
+                  {imageRefreshing ? 'Uploading image...' : 'Upload image'}
                 </button>
                 <span className="text-xs text-gray-500">
-                  Открой событие (Редактировать) → нажми, чтобы подтянуть превью с сайта
+                  Press to try image upload from the website
                 </span>
               </div>
              {/*  <div className="mt-2 flex items-center gap-2">
