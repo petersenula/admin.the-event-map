@@ -100,26 +100,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'no publicUrl from storage' }, { status: 500 });
     }
 
-    // update DB row by id OR uuid
+    // update DB row by id
     const { data: updated, error: upErr } = await supabase
-    .from('events')
-    .update({
+      .from('events')
+      .update({
         image_url: publicUrl,
         image_source: url,
         image_checked_at: new Date().toISOString(),
-    })
-    .eq('id', eventId)
-    .select('id');
-
-    if (upErr) {
-    const msg =
-        (upErr as any)?.message ??
-        (typeof upErr === 'string' ? upErr : JSON.stringify(upErr));
-    return NextResponse.json({ error: 'db update: ' + msg }, { status: 500 });
-    }
-    if (!updated || updated.length === 0) {
-    return NextResponse.json({ error: 'event not found by id' }, { status: 404 });
-    }
+      })
+      .eq('id', eventId)
+      .select('id');
 
     if (upErr) {
       const msg =
@@ -128,9 +118,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'db update: ' + msg }, { status: 500 });
     }
     if (!updated || updated.length === 0) {
-      return NextResponse.json({ error: 'event not found by id or uuid' }, { status: 404 });
+      return NextResponse.json({ error: 'event not found by id' }, { status: 404 });
     }
 
+    // важное: отдаём publicUrl клиенту
     return NextResponse.json({ ok: true, publicUrl });
   } catch (e: any) {
     const msg = e?.message ?? (typeof e === 'string' ? e : JSON.stringify(e));

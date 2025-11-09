@@ -445,6 +445,9 @@ export default function Home() {
 
       if (data.publicUrl) setCoverPreviewUrl(data.publicUrl);
       setCoverMessage('✅ Готово');
+      if (data.publicUrl) {
+        setValue('image_url', data.publicUrl as any); // чтобы верхняя форма знала новое превью
+      }
       return data.publicUrl as string | undefined;
     } finally {
       setCoverUploading(false);
