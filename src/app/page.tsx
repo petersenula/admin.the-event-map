@@ -308,6 +308,9 @@ export default function Home() {
     setTimeout(() => {
       formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 0);
+    setCoverPreviewUrl(event.image_url || null);
+    setCoverMessage(null);
+    if (pasteBoxRef.current) pasteBoxRef.current.innerText = '';
   };
 
   const autoFillFromWebsite = async () => {
@@ -380,10 +383,11 @@ export default function Home() {
     existingImage?: string | null,
     opts?: { force?: boolean }
   ) {
-    if (!website) return; // нужен сайт
-    if (existingImage && !opts?.force) return; // уже есть картинка и не форсим
+    if (!website) return;
+    if (existingImage && !opts?.force) return;
 
     try {
+      setCoverMessage('Подтягиваю обложку...');
       const resp = await fetch('/api/link-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -391,13 +395,18 @@ export default function Home() {
       });
       const data = await resp.json();
       if (!resp.ok) {
-        console.warn('image fetch failed:', data?.error);
+        setCoverMessage('Не удалось подтянуть: ' + (data?.error || resp.status));
         return;
       }
-      // data.publicUrl уже записан в БД, перечитываем список:
-      await fetchEvents(true);
-    } catch (e) {
-      console.warn('fetchAndAttachEventImage error', e);
+      if (data.publicUrl) {
+        setCoverPreviewUrl(data.publicUrl);
+        setValue('image_url', data.publicUrl as any);
+        setCoverMessage('✅ Готово');
+      } else {
+        setCoverMessage('Картинка подтянулась, но publicUrl не вернулся');
+      }
+    } catch (e: any) {
+      setCoverMessage('Ошибка: ' + (e?.message || 'не удалось подтянуть картинку'));
     }
   }
 
@@ -406,7 +415,7 @@ export default function Home() {
     setCoverUploading(true);
     setCoverMessage('Загружаю файл в хранилище…');
 
-    // локальное превью до аплоада
+    // мгновенное локальное превью
     const objectUrl = URL.createObjectURL(file);
     setCoverPreviewUrl(objectUrl);
 
@@ -419,8 +428,10 @@ export default function Home() {
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.error || 'Upload failed');
 
-      // показываем итоговую публичную ссылку
-      if (data.publicUrl) setCoverPreviewUrl(data.publicUrl);
+      if (data.publicUrl) {
+        setCoverPreviewUrl(data.publicUrl);
+        setValue('image_url', data.publicUrl as any);
+      }
       setCoverMessage('✅ Готово');
       return data.publicUrl as string | undefined;
     } finally {
@@ -460,10 +471,12 @@ export default function Home() {
         alert('Сначала сохрани событие, чтобы появился ID — потом вставляй картинку.');
         return;
       }
-
       setCoverMessage(null);
 
       const cd = e.clipboardData;
+
+      // Очистим бокс сразу, чтобы текст ссылки не остался внутри
+      if (pasteBoxRef.current) pasteBoxRef.current.innerText = '';
 
       // 1) файл из буфера
       for (const it of Array.from(cd.items)) {
@@ -495,7 +508,7 @@ export default function Home() {
         return;
       }
 
-      // 4) HTML из буфера (Safari): ищем <img src="..."> или background-image:url(...)
+      // 4) HTML из буфера (Safari): <img src> или background-image:url(...)
       const html = cd.getData('text/html');
       if (html) {
         const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -640,7 +653,7 @@ export default function Home() {
     } else {
       alert(`Архивировано ${oldEvents.length} событий`);
       fetchEvents(true); 
-      setSearch('');
+      resetImageUI();
     }
   };
 
@@ -767,7 +780,6 @@ export default function Home() {
           <option value="en">English</option>
         </select>
       </div>
-
       <div ref={formRef}>
         <form onSubmit={handleSubmit(onSubmit)} className="bg-white p-6 shadow rounded space-y-4">
 
@@ -986,24 +998,16 @@ export default function Home() {
               suppressContentEditableWarning
               tabIndex={0}
               onPaste={handlePasteImage}
-              className={`border border-dashed rounded p-3 bg-gray-50 outline-none min-h-[56px] cursor-text
+              className={`paste-box border border-dashed rounded p-3 bg-gray-50 outline-none min-h-[56px] cursor-text
                           ${coverUploading ? 'opacity-80' : ''}`}
-              title="Click here, than Ctrl/⌘+V (you can insert an image or a link)"
+              data-placeholder="Insert image (Ctrl/⌘+V) or paste a direct link. Works with right click «Copy image»."
               aria-live="polite"
-            >
-              <div className="text-sm text-gray-700">
-                Insert image (Ctrl/⌘+V) or a link to it. Works with с right click «Copy image».
-              </div>
-            </div>
-
-            {/* Статус + превью */}
+            />
             {(coverUploading || coverMessage || coverPreviewUrl) && (
               <div className="mt-2 flex items-start gap-3">
-                {/* Спиннер */}
                 {coverUploading && (
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-transparent" />
                 )}
-
                 <div className="flex-1">
                   {coverMessage && <div className="text-sm text-gray-700">{coverMessage}</div>}
                   {coverPreviewUrl && (
@@ -1028,6 +1032,7 @@ export default function Home() {
                 onClick={() => {
                   reset();
                   setEditingId(null);
+                  resetImageUI();
                 }}
                 className="bg-gray-400 text-white px-4 py-2 rounded"
               >
@@ -1122,66 +1127,74 @@ export default function Home() {
       <hr className="mt-4 border-black" />
       <div className="space-y-2">
         {events.map(event => (
-      <div
-        key={event.id}
-        id={`event-${event.id}`}
-        className="bg-white p-3 md:p-4 shadow rounded border border-gray-200"
-      >
-      <div className="flex items-start gap-3 md:gap-4">
-        {/* превью слева */}
-        {event.image_url ? (
-          <img
-            src={event.image_url}
-            alt={event.title || 'Event cover'}
-            loading="lazy"
-            width={160}
-            height={90}
-            className="w-[120px] h-[68px] md:w-[160px] md:h-[90px] object-cover rounded bg-neutral-200 shrink-0"
-          />
-        ) : (
-          <div className="w-[120px] h-[68px] md:w-[160px] md:h-[90px] rounded bg-neutral-200 shrink-0" />
-        )}
+        <div
+          key={event.id}
+          id={`event-${event.id}`}
+          className="bg-white p-3 md:p-4 shadow rounded border border-gray-200"
+        >
+        <div className="flex items-start gap-3 md:gap-4">
+          {/* превью слева */}
+          {event.image_url ? (
+            <img
+              src={event.image_url}
+              alt={event.title || 'Event cover'}
+              loading="lazy"
+              width={160}
+              height={90}
+              className="w-[120px] h-[68px] md:w-[160px] md:h-[90px] object-cover rounded bg-neutral-200 shrink-0"
+            />
+          ) : (
+            <div className="w-[120px] h-[68px] md:w-[160px] md:h-[90px] rounded bg-neutral-200 shrink-0" />
+          )}
 
-        {/* контент справа */}
-        <div className="min-w-0 flex-1">
-          <div className="font-semibold text-black text-base leading-tight line-clamp-2">
-            {event.title}
-          </div>
+          {/* контент справа */}
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-black text-base leading-tight line-clamp-2">
+              {event.title}
+            </div>
 
-          <div className="text-sm text-gray-600 mt-1">
-            {formatDate(event.start_date)} {event.start_time?.slice(0, 5)}
-            {event.end_date ? (
-              <> — {formatDate(event.end_date)} {event.end_time?.slice(0, 5)}</>
+            <div className="text-sm text-gray-600 mt-1">
+              {formatDate(event.start_date)} {event.start_time?.slice(0, 5)}
+              {event.end_date ? (
+                <> — {formatDate(event.end_date)} {event.end_time?.slice(0, 5)}</>
+              ) : null}
+            </div>
+
+            {event.website ? (
+              <a
+                href={event.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-blue-700 underline break-all"
+              >
+                {event.website}
+              </a>
             ) : null}
-          </div>
 
-          {event.website ? (
-            <a
-              href={event.website}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-blue-700 underline break-all"
-            >
-              {event.website}
-            </a>
-          ) : null}
-
-          <div className="flex flex-wrap gap-4 mt-2">
-            <button onClick={() => deleteEvent(event.id)} className="text-red-500">
-              {t.delete}
-            </button>
-            <button onClick={() => editEvent(event)} className="text-blue-500">
-              {t.edit}
-            </button>
-            <button onClick={() => copyEvent(event)} className="text-green-500">
-              {t.copy}
-            </button>
+            <div className="flex flex-wrap gap-4 mt-2">
+              <button onClick={() => deleteEvent(event.id)} className="text-red-500">
+                {t.delete}
+              </button>
+              <button onClick={() => editEvent(event)} className="text-blue-500">
+                {t.edit}
+              </button>
+              <button onClick={() => copyEvent(event)} className="text-green-500">
+                {t.copy}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    <hr className="mt-3 md:mt-4 border-black/10" />
-  </div>
-))}
+      <hr className="mt-3 md:mt-4 border-black/10" />
+      <style jsx global>{`
+        .paste-box[contenteditable][data-placeholder]:empty:before {
+          content: attr(data-placeholder);
+          pointer-events: none;
+          color: #6b7280;   /* gray-500 */
+          font-size: 0.875rem;
+        }
+      `}</style>
+    </div>
+  ))}
 
         {hasMore && (
           <div className="text-center mt-4">
