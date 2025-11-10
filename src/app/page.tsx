@@ -260,6 +260,7 @@ export default function Home() {
       clearGoogleSearch();        // 👈 добавим эту функцию ниже
       fetchEvents(true);
       setSearch('');
+      setCoverPreviewUrl(null);
     }
   };
 
