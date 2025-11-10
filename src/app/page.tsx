@@ -665,6 +665,7 @@ export default function Home() {
       alert(`Архивировано ${oldEvents.length} событий`);
       fetchEvents(true); 
       resetImageUI();
+      setCoverPreviewUrl(null);
     }
   };
 
@@ -1044,6 +1045,7 @@ export default function Home() {
                   reset();
                   setEditingId(null);
                   resetImageUI();
+                  setCoverPreviewUrl(null);
                 }}
                 className="bg-gray-400 text-white px-4 py-2 rounded"
               >
